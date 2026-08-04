@@ -109,6 +109,28 @@ enum EventLevel: String, Codable {
     case success
 }
 
+enum CorrelationKind: String, Codable {
+    case exactID
+    case providerGroup
+    case fingerprint
+    case timeWindow
+    case standalone
+
+    var title: String {
+        switch self {
+        case .exactID: "Exact ID match"
+        case .providerGroup: "Provider grouping"
+        case .fingerprint: "Error fingerprint"
+        case .timeWindow: "Time matched"
+        case .standalone: "Standalone event"
+        }
+    }
+
+    var isProven: Bool {
+        self == .exactID || self == .providerGroup
+    }
+}
+
 struct LogEvent: Identifiable, Codable, Hashable {
     let id: UUID
     let timestamp: Date
@@ -117,6 +139,13 @@ struct LogEvent: Identifiable, Codable, Hashable {
     let title: String
     let detail: String
     let requestID: String?
+    let externalID: String?
+    let userID: String?
+    let release: String?
+    let route: String?
+    let fingerprint: String
+    let correlation: CorrelationKind
+    let metadata: [String: String]
 
     init(
         id: UUID = UUID(),
@@ -125,7 +154,14 @@ struct LogEvent: Identifiable, Codable, Hashable {
         level: EventLevel,
         title: String,
         detail: String,
-        requestID: String? = nil
+        requestID: String? = nil,
+        externalID: String? = nil,
+        userID: String? = nil,
+        release: String? = nil,
+        route: String? = nil,
+        fingerprint: String? = nil,
+        correlation: CorrelationKind = .standalone,
+        metadata: [String: String] = [:]
     ) {
         self.id = id
         self.timestamp = timestamp
@@ -134,6 +170,13 @@ struct LogEvent: Identifiable, Codable, Hashable {
         self.title = title
         self.detail = detail
         self.requestID = requestID
+        self.externalID = externalID
+        self.userID = userID
+        self.release = release
+        self.route = route
+        self.fingerprint = fingerprint ?? EventFingerprint.make(source: source, message: "\(title) \(detail)")
+        self.correlation = correlation
+        self.metadata = metadata
     }
 }
 
@@ -183,6 +226,8 @@ struct SignalCase: Identifiable, Codable, Hashable {
     var findings: [CaseFinding]
     var codeReferences: [CodeReference]
     var reproduction: [String]
+    var isDemo: Bool = false
+    var detectionNote: String = ""
 
     var sources: [LogSource] {
         Array(Set(events.map(\.source))).sorted { $0.rawValue < $1.rawValue }
@@ -193,14 +238,41 @@ enum IntegrationState: String, Codable {
     case connected
     case demo
     case available
+    case disconnected
+    case waitingForEvent
+    case syncing
+    case failed
 }
 
 struct Integration: Identifiable, Codable, Hashable {
     let source: LogSource
     var state: IntegrationState
     let detail: String
+    var lastSync: Date? = nil
+    var eventCount: Int = 0
+    var errorMessage: String? = nil
 
     var id: String { source.id }
+}
+
+enum DataMode: String, CaseIterable, Codable, Identifiable {
+    case live
+    case demo
+
+    var id: String { rawValue }
+    var title: String { self == .live ? "Live" : "Demo" }
+}
+
+struct ProviderConfiguration: Codable, Hashable {
+    var supabaseProjectRef = ""
+    var sentryOrganization = ""
+    var sentryProject = ""
+    var sentryBaseURL = "https://sentry.io"
+    var renderOwnerID = ""
+    var renderResourceIDs = ""
+    var revenueCatPort = 9782
+
+    static let empty = ProviderConfiguration()
 }
 
 enum EventFingerprint {
@@ -208,10 +280,11 @@ enum EventFingerprint {
         let normalized = message
             .lowercased()
             .replacingOccurrences(of: #"[0-9a-f]{8}-[0-9a-f-]{27,}"#, with: "<id>", options: .regularExpression)
+            .replacingOccurrences(of: #"\b(req|evt|cus|sub|usr|job|dep|pi|ch)_[a-zA-Z0-9_-]+\b"#, with: "<id>", options: .regularExpression)
+            .replacingOccurrences(of: #"\b(?:\d{1,3}\.){3}\d{1,3}\b"#, with: "<ip>", options: .regularExpression)
             .replacingOccurrences(of: #"\b\d+\b"#, with: "<n>", options: .regularExpression)
             .split(whereSeparator: \Character.isWhitespace)
             .joined(separator: " ")
         return "\(source.rawValue):\(normalized)"
     }
 }
-

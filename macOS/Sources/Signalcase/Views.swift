@@ -1,14 +1,15 @@
 import SwiftUI
 
 enum SignalTheme {
-    static let background = Color(red: 0.055, green: 0.059, blue: 0.063)
-    static let sidebar = Color(red: 0.070, green: 0.074, blue: 0.078)
-    static let surface = Color(red: 0.095, green: 0.101, blue: 0.106)
-    static let raised = Color(red: 0.125, green: 0.132, blue: 0.138)
-    static let border = Color.white.opacity(0.10)
-    static let text = Color(red: 0.92, green: 0.93, blue: 0.91)
-    static let muted = Color(red: 0.55, green: 0.57, blue: 0.56)
-    static let lime = Color(red: 0.72, green: 1.00, blue: 0.25)
+    static let background = Color(red: 0.095, green: 0.096, blue: 0.089)
+    static let sidebar = Color(red: 0.065, green: 0.066, blue: 0.061)
+    static let surface = Color.white.opacity(0.055)
+    static let raised = Color.white.opacity(0.082)
+    static let raisedHover = Color.white.opacity(0.115)
+    static let border = Color.white.opacity(0.075)
+    static let text = Color.white.opacity(0.92)
+    static let muted = Color.white.opacity(0.50)
+    static let lime = Color(red: 0.78, green: 0.97, blue: 0.33)
     static let blue = Color(red: 0.34, green: 0.68, blue: 1.00)
     static let orange = Color(red: 1.00, green: 0.42, blue: 0.22)
     static let purple = Color(red: 0.70, green: 0.54, blue: 1.00)
@@ -21,20 +22,13 @@ struct RootView: View {
     var body: some View {
         HStack(spacing: 0) {
             SidebarView()
-                .frame(width: 250)
-
-            Rectangle().fill(SignalTheme.border).frame(width: 1)
-
-            CaseListView()
-                .frame(width: 390)
-
-            Rectangle().fill(SignalTheme.border).frame(width: 1)
+                .frame(width: 232)
 
             if let item = model.selectedCase {
                 CaseDetailView(item: item)
                     .id(item.id)
             } else {
-                EmptyDetailView()
+                CaseListView()
             }
         }
         .background(SignalTheme.background)
@@ -71,7 +65,7 @@ private struct SidebarView: View {
                 HStack(spacing: 10) {
                     Image(systemName: "viewfinder")
                         .font(.system(size: 15, weight: .bold))
-                    Text("Capture recent logs")
+                    Text("Sync recent logs")
                         .font(.system(size: 12, weight: .bold, design: .rounded))
                     Spacer()
                     Text("⌘N")
@@ -87,6 +81,25 @@ private struct SidebarView: View {
             .buttonStyle(ScaleButtonStyle())
             .padding(.horizontal, 14)
             .padding(.top, 28)
+
+            HStack(spacing: 4) {
+                ForEach(DataMode.allCases) { mode in
+                    Button { model.setDataMode(mode) } label: {
+                        Text(mode.title)
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .foregroundStyle(model.dataMode == mode ? SignalTheme.text : SignalTheme.muted)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 30)
+                            .background(model.dataMode == mode ? SignalTheme.raised : Color.clear, in: RoundedRectangle(cornerRadius: 9))
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(HoverButtonStyle())
+                }
+            }
+            .padding(4)
+            .background(SignalTheme.background, in: RoundedRectangle(cornerRadius: 12))
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
 
             Text("INBOX")
                 .sectionLabel()
@@ -148,7 +161,7 @@ private struct SidebarView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Integrations")
                                 .font(.system(size: 11, weight: .semibold))
-                            Text("3 demo sources · 2 available")
+                            Text("\(model.connectedCount) ready · \(model.rawEvents.count) stored events")
                                 .font(.system(size: 9))
                                 .foregroundStyle(SignalTheme.muted)
                         }
@@ -271,12 +284,21 @@ private struct CaseListView: View {
             Rectangle().fill(SignalTheme.border).frame(height: 1)
 
             if model.filteredCases.isEmpty {
-                VStack(spacing: 10) {
+                VStack(spacing: 13) {
                     Image(systemName: "waveform.path.ecg")
                         .font(.system(size: 24))
                         .foregroundStyle(SignalTheme.muted)
-                    Text("No matching cases")
+                    Text(model.dataMode == .live ? "No real cases yet" : "No matching cases")
                         .font(.system(size: 12, weight: .semibold))
+                    if model.dataMode == .live {
+                        Text("Connect a source, then sync recent activity.\nOnly errors and unusual warnings become cases.")
+                            .font(.system(size: 10))
+                            .foregroundStyle(SignalTheme.muted)
+                            .multilineTextAlignment(.center)
+                            .lineSpacing(3)
+                        Button("Connect sources") { model.isIntegrationsPresented = true }
+                            .buttonStyle(PrimaryButtonStyle())
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -390,6 +412,13 @@ private struct CaseDetailView: View {
                     .foregroundStyle(color(for: item.status))
             }
 
+            Text(item.isDemo ? "DEMO DATA" : "LIVE DATA")
+                .font(.system(size: 7, weight: .black, design: .monospaced))
+                .foregroundStyle(item.isDemo ? SignalTheme.yellow : SignalTheme.lime)
+                .padding(.horizontal, 8)
+                .frame(height: 22)
+                .background((item.isDemo ? SignalTheme.yellow : SignalTheme.lime).opacity(0.08), in: Capsule())
+
             Spacer()
 
             Button { model.copySelectedCase() } label: {
@@ -467,8 +496,8 @@ private struct CaseDetailView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("PROVEN FROM THE LOGS").sectionLabel()
-                    Text("No guesses. Every finding links back to an event.")
+                    Text("WHAT THE EVIDENCE SHOWS").sectionLabel()
+                    Text(item.detectionNote.isEmpty ? "Exact matches and time-based context are labeled separately." : item.detectionNote)
                         .font(.system(size: 10))
                         .foregroundStyle(SignalTheme.muted)
                 }
@@ -681,6 +710,9 @@ private struct EventRow: View {
                         .font(.system(size: 8, weight: .semibold, design: .monospaced))
                         .foregroundStyle(SignalTheme.blue)
                 }
+                Text(event.correlation.title.uppercased())
+                    .font(.system(size: 7, weight: .bold, design: .monospaced))
+                    .foregroundStyle(event.correlation.isProven ? SignalTheme.lime : event.correlation == .timeWindow ? SignalTheme.yellow : SignalTheme.muted)
             }
             .padding(.top, 6)
 
@@ -700,7 +732,6 @@ private struct CaptureSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var minutes = 15
     @State private var selectedSources: Set<LogSource> = [.supabase, .stripe, .render]
-    @State private var note = ""
 
     private let windows = [5, 15, 30, 60]
 
@@ -717,10 +748,10 @@ private struct CaptureSheet: View {
             }
 
             VStack(alignment: .leading, spacing: 7) {
-                Text("CAPTURE RECENT ACTIVITY").sectionLabel()
-                Text("Turn the last few minutes into a case")
+                Text("SYNC RECENT ACTIVITY").sectionLabel()
+                Text("Find problems in real logs")
                     .font(.system(size: 27, weight: .bold, design: .rounded))
-                Text("Signalcase groups related events by request ID, stack fingerprint, user, release, and time. Demo sources are used in this prototype.")
+                Text("Choose connected sources and a time window. Signalcase imports the events, redacts secrets, and creates cases only for failures or unusual warnings.")
                     .font(.system(size: 11))
                     .foregroundStyle(SignalTheme.muted)
                     .lineSpacing(3)
@@ -748,7 +779,9 @@ private struct CaptureSheet: View {
                 Text("SOURCES").sectionLabel()
                 HStack(spacing: 8) {
                     ForEach([LogSource.supabase, .stripe, .render, .revenueCat, .sentry]) { source in
+                        let isConnected = model.availableSyncSources.contains(source)
                         Button {
+                            guard isConnected else { model.isIntegrationsPresented = true; return }
                             if selectedSources.contains(source) { selectedSources.remove(source) }
                             else { selectedSources.insert(source) }
                         } label: {
@@ -758,8 +791,10 @@ private struct CaptureSheet: View {
                                 Text(source.title)
                                     .font(.system(size: 8, weight: .semibold))
                                     .lineLimit(1)
+                                Text(isConnected ? "READY" : "SET UP")
+                                    .font(.system(size: 6, weight: .bold, design: .monospaced))
                             }
-                            .foregroundStyle(selectedSources.contains(source) ? sourceColor(source) : SignalTheme.muted)
+                            .foregroundStyle(selectedSources.contains(source) && isConnected ? sourceColor(source) : SignalTheme.muted)
                             .frame(maxWidth: .infinity)
                             .frame(height: 60)
                             .background(selectedSources.contains(source) ? sourceColor(source).opacity(0.09) : SignalTheme.surface, in: RoundedRectangle(cornerRadius: 12))
@@ -774,24 +809,11 @@ private struct CaptureSheet: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 9) {
-                Text("WHAT DID YOU NOTICE? · OPTIONAL").sectionLabel()
-                TextField("Example: I clicked Export and nothing downloaded", text: $note, axis: .vertical)
-                    .lineLimit(2...4)
-                    .font(.system(size: 11))
-                    .textFieldStyle(.plain)
-                    .padding(13)
-                    .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 13))
-                    .overlay { RoundedRectangle(cornerRadius: 13).stroke(SignalTheme.border) }
-            }
-
             HStack {
-                HStack(spacing: 7) {
-                    Image(systemName: "shield.lefthalf.filled")
-                    Text("READ-ONLY DEMO")
+                Button { model.importLogs() } label: {
+                    Label("Import log file", systemImage: "doc.badge.plus")
                 }
-                .font(.system(size: 8, weight: .bold, design: .monospaced))
-                .foregroundStyle(SignalTheme.muted)
+                .buttonStyle(QuietButtonStyle())
 
                 Spacer()
 
@@ -799,7 +821,7 @@ private struct CaptureSheet: View {
                     .buttonStyle(QuietButtonStyle())
 
                 Button {
-                    Task { await model.captureRecentLogs(minutes: minutes, sources: selectedSources, note: note) }
+                    Task { await model.syncRecentLogs(minutes: minutes, sources: selectedSources) }
                 } label: {
                     HStack(spacing: 9) {
                         if model.isCapturing {
@@ -807,7 +829,7 @@ private struct CaptureSheet: View {
                         } else {
                             Image(systemName: "waveform.path.ecg")
                         }
-                        Text(model.isCapturing ? "Building case…" : "Capture and build case")
+                        Text(model.isCapturing ? "Checking providers…" : "Sync and detect cases")
                     }
                     .font(.system(size: 11, weight: .bold, design: .rounded))
                     .foregroundStyle(.black)
@@ -828,9 +850,13 @@ private struct CaptureSheet: View {
 private struct IntegrationsSheet: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
+    @State private var selectedSource: LogSource = .supabase
+    @State private var token = ""
+    @State private var authorizationHeader = ""
+    @State private var signingSecret = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
+        VStack(alignment: .leading, spacing: 20) {
             HStack {
                 ZStack {
                     RoundedRectangle(cornerRadius: 13).fill(SignalTheme.blue.opacity(0.13)).frame(width: 42, height: 42)
@@ -847,85 +873,205 @@ private struct IntegrationsSheet: View {
                 Text("EVIDENCE SOURCES").sectionLabel()
                 Text("Connect the places bugs leave traces")
                     .font(.system(size: 27, weight: .bold, design: .rounded))
-                Text("Connections are read-only. The prototype toggles realistic demo sources; production OAuth and restricted-key setup comes later.")
+                Text("Choose a source, enter its credentials, then test it against real recent activity. Signalcase makes read requests only, and secrets are stored in your Mac Keychain.")
                     .font(.system(size: 11))
                     .foregroundStyle(SignalTheme.muted)
             }
 
-            VStack(spacing: 8) {
-                ForEach(model.integrations) { integration in
-                    Button {
-                        model.setIntegration(integration.source, connected: integration.state == .available)
-                    } label: {
-                        HStack(spacing: 13) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(sourceColor(integration.source).opacity(0.10))
-                                    .frame(width: 42, height: 42)
-                                Image(systemName: integration.source.systemImage)
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .foregroundStyle(sourceColor(integration.source))
+            HStack(alignment: .top, spacing: 16) {
+                ScrollView {
+                    VStack(spacing: 6) {
+                        ForEach(model.integrations) { integration in
+                            Button { selectedSource = integration.source } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: integration.source.systemImage)
+                                        .foregroundStyle(sourceColor(integration.source))
+                                        .frame(width: 24)
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(integration.source.title)
+                                            .font(.system(size: 11, weight: .semibold))
+                                        Text(stateLabel(integration))
+                                            .font(.system(size: 7, weight: .bold, design: .monospaced))
+                                            .foregroundStyle(stateColor(integration.state))
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 8, weight: .bold))
+                                        .foregroundStyle(SignalTheme.muted)
+                                }
+                                .padding(.horizontal, 11)
+                                .frame(height: 48)
+                                .background(selectedSource == integration.source ? SignalTheme.raised : Color.clear, in: RoundedRectangle(cornerRadius: 13))
+                                .contentShape(Rectangle())
                             }
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(integration.source.title)
-                                    .font(.system(size: 12, weight: .semibold))
-                                Text(integration.detail)
-                                    .font(.system(size: 9))
-                                    .foregroundStyle(SignalTheme.muted)
-                            }
-                            Spacer()
-                            Text(stateLabel(integration.state))
-                                .font(.system(size: 8, weight: .bold, design: .monospaced))
-                                .foregroundStyle(integration.state == .available ? SignalTheme.muted : SignalTheme.lime)
-                            Image(systemName: integration.state == .available ? "plus" : "checkmark")
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundStyle(integration.state == .available ? SignalTheme.muted : SignalTheme.lime)
-                                .frame(width: 26, height: 26)
-                                .background(SignalTheme.raised, in: Circle())
+                            .buttonStyle(HoverButtonStyle())
                         }
-                        .padding(11)
-                        .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 15))
-                        .overlay { RoundedRectangle(cornerRadius: 15).stroke(SignalTheme.border) }
-                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(HoverButtonStyle())
                 }
-            }
+                .frame(width: 190, height: 365)
 
-            HStack(spacing: 10) {
-                Image(systemName: "cpu")
-                    .foregroundStyle(SignalTheme.lime)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Optional on-device log cleanup")
-                        .font(.system(size: 10, weight: .semibold))
-                    Text("Planned: extract fields locally on supported Macs. Grouping works without it.")
-                        .font(.system(size: 9))
-                        .foregroundStyle(SignalTheme.muted)
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(selectedSource.title)
+                                .font(.system(size: 17, weight: .bold, design: .rounded))
+                            Text(integration(for: selectedSource)?.detail ?? "")
+                                .font(.system(size: 9))
+                                .foregroundStyle(SignalTheme.muted)
+                        }
+                        Spacer()
+                    }
+
+                    configurationFields
+
+                    if let error = integration(for: selectedSource)?.errorMessage, !error.isEmpty {
+                        Label(error, systemImage: "exclamationmark.triangle.fill")
+                            .font(.system(size: 9))
+                            .foregroundStyle(SignalTheme.orange)
+                            .lineLimit(3)
+                    }
+
+                    Spacer()
+
+                    HStack {
+                        if let state = integration(for: selectedSource)?.state,
+                           [.connected, .waitingForEvent].contains(state) {
+                            Button("Disconnect") { model.disconnect(selectedSource) }
+                                .buttonStyle(QuietButtonStyle())
+                        }
+                        Spacer()
+                        Button {
+                            Task {
+                                await model.saveConnection(
+                                    source: selectedSource,
+                                    token: token,
+                                    authorizationHeader: authorizationHeader,
+                                    signingSecret: signingSecret
+                                )
+                            }
+                        } label: {
+                            Text(selectedSource == .revenueCat || selectedSource == .application ? "Start receiver" : "Save & test")
+                        }
+                        .buttonStyle(PrimaryButtonStyle())
+                    }
                 }
-                Spacer()
-                Text("PLANNED")
-                    .font(.system(size: 8, weight: .bold, design: .monospaced))
-                    .foregroundStyle(SignalTheme.muted)
+                .padding(18)
+                .frame(maxWidth: .infinity, minHeight: 365, alignment: .topLeading)
+                .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 17))
+                .overlay { RoundedRectangle(cornerRadius: 17).stroke(SignalTheme.border) }
             }
-            .padding(13)
-            .background(SignalTheme.lime.opacity(0.045), in: RoundedRectangle(cornerRadius: 14))
 
             HStack {
+                Text(model.receiverStatus)
+                    .font(.system(size: 8, design: .monospaced))
+                    .foregroundStyle(SignalTheme.muted)
                 Spacer()
                 Button("Done") { dismiss() }
                     .buttonStyle(PrimaryButtonStyle())
             }
         }
         .padding(28)
-        .frame(width: 620)
+        .frame(width: 760, height: 650)
         .background(SignalTheme.background)
+        .onChange(of: selectedSource) {
+            token = ""
+            authorizationHeader = ""
+            signingSecret = ""
+        }
     }
 
-    private func stateLabel(_ state: IntegrationState) -> String {
+    @ViewBuilder
+    private var configurationFields: some View {
+        switch selectedSource {
+        case .supabase:
+            setupField("PROJECT REFERENCE", "abcdefghijklmno", text: $model.configuration.supabaseProjectRef)
+            secretField("PERSONAL ACCESS TOKEN", "sbp_…", text: $token)
+            help("Create a Personal Access Token in Supabase account settings. It is used only with the Management API logs endpoint.")
+        case .sentry:
+            setupField("ORGANIZATION SLUG", "my-team", text: $model.configuration.sentryOrganization)
+            setupField("PROJECT SLUG", "my-app", text: $model.configuration.sentryProject)
+            setupField("BASE URL", "https://sentry.io", text: $model.configuration.sentryBaseURL)
+            secretField("TOKEN · EVENT:READ", "sntrys_…", text: $token)
+        case .stripe:
+            secretField("RESTRICTED KEY · EVENTS READ", "rk_live_…", text: $token)
+            help("Use a restricted key that can read Events. Signalcase never creates, refunds, or changes payments.")
+        case .render:
+            setupField("WORKSPACE OWNER ID", "tea-…", text: $model.configuration.renderOwnerID)
+            setupField("SERVICE IDS · COMMA SEPARATED", "srv-…, srv-…", text: $model.configuration.renderResourceIDs)
+            secretField("API KEY", "rnd_…", text: $token)
+        case .revenueCat:
+            endpointCard("POST http://localhost:\(model.configuration.revenueCatPort)/revenuecat")
+            setupNumberField("RECEIVER PORT", value: $model.configuration.revenueCatPort)
+            secretField("OPTIONAL AUTHORIZATION HEADER", "Bearer …", text: $authorizationHeader)
+            secretField("OPTIONAL SIGNING SECRET", "Webhook HMAC secret", text: $signingSecret)
+            help("RevenueCat must reach this Mac. For remote webhooks, expose the local endpoint with a secure tunnel. Historical RevenueCat logs are not fetched automatically.")
+        case .application:
+            endpointCard("POST http://localhost:\(model.configuration.revenueCatPort)/events")
+            secretField("OPTIONAL AUTHORIZATION HEADER", "Bearer …", text: $authorizationHeader)
+            help("Send structured JSON with timestamp, level, title, message, request_id, user_id, release, and route. The request ID is what connects services exactly.")
+        }
+    }
+
+    private func setupField(_ label: String, _ placeholder: String, text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label).sectionLabel()
+            TextField(placeholder, text: text).textFieldStyle(.plain)
+                .padding(.horizontal, 11).frame(height: 36)
+                .background(SignalTheme.raised, in: RoundedRectangle(cornerRadius: 10))
+        }
+    }
+
+    private func setupNumberField(_ label: String, value: Binding<Int>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label).sectionLabel()
+            TextField("9782", value: value, format: .number).textFieldStyle(.plain)
+                .padding(.horizontal, 11).frame(height: 36)
+                .background(SignalTheme.raised, in: RoundedRectangle(cornerRadius: 10))
+        }
+    }
+
+    private func secretField(_ label: String, _ placeholder: String, text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label).sectionLabel()
+            SecureField(placeholder, text: text).textFieldStyle(.plain)
+                .padding(.horizontal, 11).frame(height: 36)
+                .background(SignalTheme.raised, in: RoundedRectangle(cornerRadius: 10))
+        }
+    }
+
+    private func endpointCard(_ value: String) -> some View {
+        Text(value)
+            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+            .foregroundStyle(SignalTheme.blue)
+            .padding(.horizontal, 11).frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
+            .background(SignalTheme.blue.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func help(_ value: String) -> some View {
+        Text(value).font(.system(size: 9)).foregroundStyle(SignalTheme.muted).lineSpacing(2)
+    }
+
+    private func integration(for source: LogSource) -> Integration? {
+        model.integrations.first { $0.source == source }
+    }
+
+    private func stateLabel(_ integration: Integration) -> String {
+        switch integration.state {
+        case .connected: integration.eventCount > 0 ? "CONNECTED · \(integration.eventCount) EVENTS" : "CONNECTED"
+        case .waitingForEvent: "WAITING FOR WEBHOOK"
+        case .syncing: "CHECKING…"
+        case .failed: "NEEDS ATTENTION"
+        case .disconnected, .available: "NOT SET UP"
+        case .demo: "DEMO"
+        }
+    }
+
+    private func stateColor(_ state: IntegrationState) -> Color {
         switch state {
-        case .connected: "CONNECTED"
-        case .demo: "DEMO ON"
-        case .available: "ADD DEMO"
+        case .connected: SignalTheme.lime
+        case .syncing, .waitingForEvent: SignalTheme.blue
+        case .failed: SignalTheme.orange
+        default: SignalTheme.muted
         }
     }
 }
@@ -1105,4 +1251,3 @@ private func timeOnly(_ date: Date) -> String {
     formatter.dateFormat = "HH:mm:ss"
     return formatter.string(from: date)
 }
-

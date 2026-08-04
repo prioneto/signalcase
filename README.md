@@ -1,8 +1,8 @@
 # Signalcase
 
-Signalcase is a native macOS prototype that turns logs from Supabase, Stripe, Render, RevenueCat, and Sentry into compact, evidence-backed bug cases.
+Signalcase is a native macOS app that turns logs from Supabase, Stripe, Render, RevenueCat, Sentry, and your application into compact, evidence-backed bug cases.
 
-The prototype uses realistic demo events so the product direction can be tested without connecting production credentials. It deliberately uses deterministic grouping and findings; there is no required AI account.
+Live data is the default. A separate Demo switch keeps seeded examples available. Grouping and findings are deterministic, so no AI account is required.
 
 ## Native app
 
@@ -15,10 +15,30 @@ The packaged app is created at `macOS/.build/Signalcase.app`.
 
 Try these flows:
 
-- Select the seeded cases to compare cross-service timelines.
-- Click **Capture recent logs**, choose a time window, and build a new case.
-- Open **Integrations** to see how service connections fit into the product.
+- Open **Integrations** and save a provider credential. Signalcase only makes read requests, and tokens are stored in macOS Keychain rather than the workspace file. Prefer the narrowest provider permissions available.
+- Click **Sync recent logs**, choose connected sources and a window, then let Signalcase detect cases.
+- Import a JSON, JSONL, or plain-text log file from the sync sheet.
+- Switch to **Demo** to explore seeded cross-service timelines.
 - Advance a case from New → Triaged → Fixing → Verified.
+
+### Sources
+
+- **Supabase:** project reference plus a Personal Access Token. Signalcase queries the current Management API unified `logs` endpoint.
+- **Stripe:** a restricted key with Events read access. Events and unsuccessful webhook deliveries from the selected window are read.
+- **Render:** workspace owner ID, service IDs, and an API key. Service logs and deploys are read.
+- **Sentry:** organization/project slugs and an `event:read` token. Recent issues and their latest event are read.
+- **RevenueCat:** configure its webhook to send to `POST /revenuecat` on the receiver shown in the app. A secure tunnel or future hosted relay is required when RevenueCat cannot reach your Mac directly.
+- **Application:** send structured JSON to `POST /events` on the same receiver.
+
+Example local application event:
+
+```bash
+curl -X POST http://localhost:9782/events \
+  -H 'Content-Type: application/json' \
+  -d '{"timestamp":"2026-08-05T00:25:42Z","level":"error","title":"ProfileBootstrapError","message":"permission denied for table profiles","request_id":"req_17","user_id":"usr_42","release":"28cc04","route":"GET /profiles"}'
+```
+
+Use the same `request_id` or trace ID in your app logs and downstream service metadata when possible. Exact IDs are shown as proven links; nearby events are visibly labeled as time-based context.
 
 ## Website
 
@@ -30,7 +50,6 @@ npm run dev
 
 Open [http://localhost:3002](http://localhost:3002).
 
-## Prototype boundary
+## Current boundary
 
-The UI and case-building workflow are functional. Service connections currently use demo data and do not make production API calls. The intended MVP would begin with read-only Stripe Events, Supabase log queries, and Render deploy data, then add a small hosted webhook collector for always-on ingestion.
-
+The macOS receiver works while Signalcase is open. It is suitable for local testing; a hosted, authenticated collector is still needed for reliable always-on RevenueCat and application ingestion. Provider retention and API limits still apply, and RevenueCat history is collected from new webhooks rather than fetched retroactively.

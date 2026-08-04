@@ -15,10 +15,9 @@ struct SignalcaseApp: App {
         .windowToolbarStyle(.unifiedCompact)
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("Capture recent logs") { model.isCapturePresented = true }
+                Button("Sync recent logs") { model.isCapturePresented = true }
                     .keyboardShortcut("n", modifiers: .command)
             }
         }
     }
 }
-

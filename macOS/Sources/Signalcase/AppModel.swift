@@ -4,6 +4,7 @@ import Foundation
 @MainActor
 final class AppModel: ObservableObject {
     @Published var cases: [SignalCase]
+    @Published var rawEvents: [LogEvent]
     @Published var selectedCaseID: SignalCase.ID?
     @Published var filter: CaseFilter = .all
     @Published var searchText = ""
@@ -12,22 +13,44 @@ final class AppModel: ObservableObject {
     @Published var isCapturing = false
     @Published var toastMessage: String?
     @Published var linkedProjectURL: URL?
-    @Published var integrations: [Integration] = [
-        .init(source: .supabase, state: .demo, detail: "Auth, Postgres and Edge Function logs"),
-        .init(source: .stripe, state: .demo, detail: "Events and webhook deliveries"),
-        .init(source: .render, state: .demo, detail: "Deploys, restarts and service logs"),
-        .init(source: .revenueCat, state: .available, detail: "Purchases, billing and entitlement events"),
-        .init(source: .sentry, state: .available, detail: "Exceptions, releases and affected users")
-    ]
+    @Published var integrations: [Integration]
+    @Published var configuration: ProviderConfiguration
+    @Published var dataMode: DataMode = .live
+    @Published var receiverStatus = "Receiver stopped"
 
-    init(cases: [SignalCase] = SignalCase.samples) {
-        self.cases = cases
-        selectedCaseID = cases.first?.id
+    private var receiver: LocalEventReceiver?
+    private var savedLiveCases: [SignalCase] = []
+    private var savedLiveEvents: [LogEvent] = []
 
-        let fitref = URL(fileURLWithPath: "/Users/dimitrislolis/Projects/fitref", isDirectory: true)
-        if FileManager.default.fileExists(atPath: fitref.path) {
-            linkedProjectURL = fitref
+    init(cases suppliedCases: [SignalCase]? = nil) {
+        let workspace = WorkspaceStore.load()
+        let migratedEvents = workspace.events.map(SupabaseProvider.reclassifyPersisted)
+        let migratedCases = workspace.cases.compactMap(Self.reclassifyPersistedCase)
+        let initialCases = suppliedCases ?? migratedCases
+        cases = initialCases
+        rawEvents = migratedEvents
+        configuration = workspace.configuration
+        if let path = workspace.projectPath, FileManager.default.fileExists(atPath: path) {
+            linkedProjectURL = URL(fileURLWithPath: path, isDirectory: true)
         }
+        integrations = [
+            .init(source: .supabase, state: Self.connectionState(.supabase, configuration: workspace.configuration, events: migratedEvents), detail: "Auth, database and function logs"),
+            .init(source: .stripe, state: Self.connectionState(.stripe, configuration: workspace.configuration, events: migratedEvents), detail: "Events and failed webhook deliveries"),
+            .init(source: .render, state: Self.connectionState(.render, configuration: workspace.configuration, events: migratedEvents), detail: "Service logs, deploys and restarts"),
+            .init(source: .revenueCat, state: Self.connectionState(.revenueCat, configuration: workspace.configuration, events: migratedEvents), detail: "Incoming purchase and entitlement webhooks"),
+            .init(source: .sentry, state: Self.connectionState(.sentry, configuration: workspace.configuration, events: migratedEvents), detail: "Issues, stack frames and releases"),
+            .init(source: .application, state: Self.connectionState(.application, configuration: workspace.configuration, events: migratedEvents), detail: "Structured events sent by your app")
+        ]
+        selectedCaseID = nil
+        if suppliedCases == nil {
+            try? WorkspaceStore.save(PersistedWorkspace(
+                cases: initialCases,
+                events: migratedEvents,
+                configuration: workspace.configuration,
+                projectPath: workspace.projectPath
+            ))
+        }
+        startReceiver()
     }
 
     var filteredCases: [SignalCase] {
@@ -53,6 +76,14 @@ final class AppModel: ObservableObject {
         linkedProjectURL?.lastPathComponent ?? "No project linked"
     }
 
+    var connectedCount: Int {
+        integrations.filter { $0.state == .connected }.count
+    }
+
+    var availableSyncSources: Set<LogSource> {
+        Set(integrations.filter { $0.state == .connected }.map(\.source))
+    }
+
     func count(for filter: CaseFilter) -> Int {
         guard let status = filter.status else { return cases.count }
         return cases.filter { $0.status == status }.count
@@ -62,71 +93,106 @@ final class AppModel: ObservableObject {
         selectedCaseID = item.id
     }
 
+    func showCaseList() {
+        selectedCaseID = nil
+    }
+
     func advanceSelectedCase() {
         guard let selectedCaseID,
               let index = cases.firstIndex(where: { $0.id == selectedCaseID }),
               let next = cases[index].status.next else { return }
         cases[index].status = next
+        persist()
         showToast("Moved to \(next.title)")
     }
 
-    func captureRecentLogs(minutes: Int, sources: Set<LogSource>, note: String) async {
-        guard !isCapturing else { return }
-        isCapturing = true
-        try? await Task.sleep(for: .milliseconds(850))
-
-        let now = Date()
-        let requestedSources = sources.isEmpty ? Set([LogSource.supabase, .render]) : sources
-        let events = demoCaptureEvents(now: now).filter { requestedSources.contains($0.source) }
-        let usableEvents = events.isEmpty ? demoCaptureEvents(now: now) : events
-        let nextNumber = (cases.compactMap { Int($0.reference.replacingOccurrences(of: "SIG-", with: "")) }.max() ?? 104) + 1
-        let additionalContext = note.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        let captured = SignalCase(
-            id: UUID(),
-            reference: "SIG-\(nextNumber)",
-            title: "Profile export fails when the worker starts processing",
-            summary: additionalContext.isEmpty
-                ? "Signalcase grouped a failed export request, its background job, and the matching database error from the last \(minutes) minutes."
-                : additionalContext,
-            status: .new,
-            severity: .high,
-            occurrenceCount: 4,
-            affectedUsers: 3,
-            firstSeen: now.addingTimeInterval(-420),
-            lastSeen: now.addingTimeInterval(-36),
-            release: "fitref-web · 7c21d8e",
-            environment: "Production",
-            fingerprint: EventFingerprint.make(source: .supabase, message: "Export job failed: column profile_snapshot does not exist"),
-            events: usableEvents,
-            findings: [
-                .init(title: "One operation across three events", detail: "Request req_export_92 links the user action, background job, and database failure.", tone: .neutral),
-                .init(title: "Database schema does not match the worker", detail: "The worker queries profile_snapshot, but Postgres reports that the column does not exist.", tone: .failure),
-                .init(title: "Started after release 7c21d8e", detail: "The first matching failure appeared six minutes after the latest Render deploy.", tone: .warning)
-            ],
-            codeReferences: [
-                .init(path: "app/api/profile/export/route.ts", line: 88, reason: "Enqueues the export job"),
-                .init(path: "workers/profile-export.ts", line: 47, reason: "Reads profile_snapshot")
-            ],
-            reproduction: [
-                "Run the production schema locally without the profile_snapshot column.",
-                "Open Profile and choose Export.",
-                "Confirm the worker reports the same database error and the UI shows a useful failure."
-            ]
-        )
-
-        cases.insert(captured, at: 0)
-        selectedCaseID = captured.id
-        filter = .all
-        isCapturing = false
-        isCapturePresented = false
-        showToast("Built \(captured.reference) from \(usableEvents.count) related events")
+    func setDataMode(_ mode: DataMode) {
+        guard mode != dataMode else { return }
+        if mode == .demo {
+            savedLiveCases = cases
+            savedLiveEvents = rawEvents
+            cases = SignalCase.samples
+            rawEvents = []
+        } else {
+            cases = savedLiveCases
+            rawEvents = savedLiveEvents
+        }
+        dataMode = mode
+        selectedCaseID = nil
     }
 
-    func setIntegration(_ source: LogSource, connected: Bool) {
-        guard let index = integrations.firstIndex(where: { $0.source == source }) else { return }
-        integrations[index].state = connected ? .demo : .available
-        showToast(connected ? "\(source.title) demo source enabled" : "\(source.title) disconnected")
+    func syncRecentLogs(minutes: Int, sources: Set<LogSource>) async {
+        guard !isCapturing else { return }
+        guard dataMode == .live else {
+            showToast("Switch to Live to sync provider data")
+            return
+        }
+        let requested = sources.intersection(availableSyncSources)
+        guard !requested.isEmpty else {
+            isCapturePresented = false
+            isIntegrationsPresented = true
+            showToast("Connect at least one source first")
+            return
+        }
+        isCapturing = true
+        defer { isCapturing = false }
+        let end = Date()
+        let start = end.addingTimeInterval(TimeInterval(-minutes * 60))
+        var incoming: [LogEvent] = []
+
+        for source in requested.sorted(by: { $0.rawValue < $1.rawValue }) {
+            updateIntegration(source, state: .syncing)
+            do {
+                let events = try await fetch(source: source, start: start, end: end)
+                incoming.append(contentsOf: events)
+                updateIntegration(source, state: .connected, count: events.count, error: nil)
+            } catch {
+                updateIntegration(source, state: .failed, error: SecretRedactor.redact(error.localizedDescription))
+            }
+        }
+
+        ingest(incoming)
+        isCapturePresented = false
+        let failed = requested.filter { source in integrations.first(where: { $0.source == source })?.state == .failed }.count
+        if incoming.isEmpty {
+            showToast(failed > 0 ? "Sync finished with connection errors" : "No events found in that time window")
+        } else {
+            showToast("Checked \(incoming.count) real events and updated \(cases.count) cases")
+        }
+    }
+
+    func saveConnection(
+        source: LogSource,
+        token: String,
+        authorizationHeader: String = "",
+        signingSecret: String = ""
+    ) async {
+        do {
+            if !token.isEmpty { try CredentialStore.save(token, source: source, kind: .apiToken) }
+            if !authorizationHeader.isEmpty { try CredentialStore.save(authorizationHeader, source: source, kind: .authorizationHeader) }
+            if !signingSecret.isEmpty { try CredentialStore.save(signingSecret, source: source, kind: .signingSecret) }
+            persist()
+            if source == .revenueCat || source == .application {
+                startReceiver()
+                updateIntegration(source, state: .waitingForEvent)
+                showToast("Waiting for the first \(source.title) event")
+            } else {
+                updateIntegration(source, state: .syncing)
+                let events = try await fetch(source: source, start: Date().addingTimeInterval(-300), end: Date())
+                updateIntegration(source, state: .connected, count: events.count, error: nil)
+                if !events.isEmpty { ingest(events) }
+                showToast("\(source.title) connected · \(events.count) recent events")
+            }
+        } catch {
+            updateIntegration(source, state: .failed, error: SecretRedactor.redact(error.localizedDescription))
+            showToast("Could not connect \(source.title)")
+        }
+    }
+
+    func disconnect(_ source: LogSource) {
+        CredentialStore.remove(source: source)
+        updateIntegration(source, state: .disconnected, count: 0, error: nil)
+        showToast("\(source.title) disconnected")
     }
 
     func chooseProject() {
@@ -138,8 +204,39 @@ final class AppModel: ObservableObject {
         panel.allowsMultipleSelection = false
         if panel.runModal() == .OK {
             linkedProjectURL = panel.url
+            persist()
             showToast("Linked \(projectName)")
         }
+    }
+
+    func importLogs() {
+        let panel = NSOpenPanel()
+        panel.title = "Import JSON, JSONL, or a text log"
+        panel.prompt = "Import logs"
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url,
+              let data = try? Data(contentsOf: url) else { return }
+
+        var events: [LogEvent] = []
+        if let payload = try? JSONSerialization.jsonObject(with: data) {
+            let objects = payload as? [Any] ?? [payload]
+            events = objects.compactMap { try? ApplicationEventProvider.normalize($0) }
+        } else if let text = String(data: data, encoding: .utf8) {
+            for line in text.split(whereSeparator: \Character.isNewline) {
+                if let lineData = String(line).data(using: .utf8),
+                   let object = try? JSONSerialization.jsonObject(with: lineData),
+                   let event = try? ApplicationEventProvider.normalize(object) {
+                    events.append(event)
+                } else {
+                    let message = SecretRedactor.redact(String(line))
+                    events.append(LogEvent(timestamp: Date(), source: .application, level: Self.level(for: message), title: String(message.prefix(100)), detail: message))
+                }
+            }
+        }
+        ingest(events)
+        showToast(events.isEmpty ? "No readable log events found" : "Imported \(events.count) events")
     }
 
     func openCode(_ reference: CodeReference) {
@@ -149,7 +246,7 @@ final class AppModel: ObservableObject {
         }
         let url = linkedProjectURL.appendingPathComponent(reference.path)
         guard FileManager.default.fileExists(atPath: url.path) else {
-            showToast("That demo path is not present in \(projectName)")
+            showToast("That path is not present in \(projectName)")
             return
         }
         NSWorkspace.shared.open(url)
@@ -175,28 +272,126 @@ final class AppModel: ObservableObject {
         showToast("Case copied as a redacted bug packet")
     }
 
-    private func demoCaptureEvents(now: Date) -> [LogEvent] {
-        [
-            .init(timestamp: now.addingTimeInterval(-422), source: .application, level: .info, title: "Profile export requested", detail: "POST /api/profile/export · user usr_318", requestID: "req_export_92"),
-            .init(timestamp: now.addingTimeInterval(-421), source: .render, level: .info, title: "Background job accepted", detail: "profile-export worker · job job_781", requestID: "req_export_92"),
-            .init(timestamp: now.addingTimeInterval(-419), source: .supabase, level: .error, title: "Postgres query failed", detail: "42703 · column profile_snapshot does not exist", requestID: "req_export_92"),
-            .init(timestamp: now.addingTimeInterval(-418), source: .render, level: .error, title: "Export job failed", detail: "profile-export.ts:47 · retry 1 of 3", requestID: "req_export_92")
-        ]
-    }
-
-    private func showToast(_ message: String) {
+    func showToast(_ message: String) {
         toastMessage = message
         Task {
             try? await Task.sleep(for: .seconds(2.5))
             if toastMessage == message { toastMessage = nil }
         }
     }
+
+    private func fetch(source: LogSource, start: Date, end: Date) async throws -> [LogEvent] {
+        let token = CredentialStore.load(source: source, kind: .apiToken) ?? ""
+        switch source {
+        case .supabase: return try await SupabaseProvider.fetch(configuration: configuration, token: token, start: start, end: end)
+        case .stripe: return try await StripeProvider.fetch(token: token, start: start, end: end)
+        case .render: return try await RenderProvider.fetch(configuration: configuration, token: token, start: start, end: end)
+        case .sentry: return try await SentryProvider.fetch(configuration: configuration, token: token, start: start, end: end)
+        case .revenueCat, .application:
+            return rawEvents.filter { $0.source == source && $0.timestamp >= start && $0.timestamp <= end }
+        }
+    }
+
+    private func ingest(_ events: [LogEvent]) {
+        guard !events.isEmpty else { return }
+        let redacted = events.map(Self.redacted)
+        var seen = Set<String>()
+        rawEvents = (rawEvents + redacted).filter { event in
+            let key = event.externalID.map { "\(event.source.rawValue):\($0)" }
+                ?? "\(event.source.rawValue):\(event.timestamp.timeIntervalSince1970):\(event.fingerprint)"
+            return seen.insert(key).inserted
+        }.sorted { $0.timestamp > $1.timestamp }
+        if rawEvents.count > 5_000 { rawEvents = Array(rawEvents.prefix(5_000)) }
+
+        let next = cases.compactMap { Int($0.reference.replacingOccurrences(of: "SIG-", with: "")) }.max() ?? 0
+        let detected = SignalDetector.detect(events: rawEvents, projectRoot: linkedProjectURL, startingNumber: next)
+        cases = SignalDetector.merge(detected: detected.cases, into: cases.filter { !$0.isDemo })
+        selectedCaseID = cases.first?.id
+        filter = .all
+        persist()
+    }
+
+    private func startReceiver() {
+        receiver?.stop()
+        let receiver = LocalEventReceiver(
+            onEvent: { [weak self] event in
+                Task { @MainActor in
+                    guard let self else { return }
+                    let count = self.rawEvents.filter { $0.source == event.source }.count + 1
+                    self.updateIntegration(event.source, state: .connected, count: count, error: nil)
+                    self.ingest([event])
+                }
+            },
+            onState: { [weak self] state in Task { @MainActor in self?.receiverStatus = state } }
+        )
+        self.receiver = receiver
+        do { try receiver.start(port: configuration.revenueCatPort) }
+        catch { receiverStatus = "Receiver failed: \(error.localizedDescription)" }
+    }
+
+    private func updateIntegration(_ source: LogSource, state: IntegrationState, count: Int? = nil, error: String? = nil) {
+        guard let index = integrations.firstIndex(where: { $0.source == source }) else { return }
+        integrations[index].state = state
+        if let count { integrations[index].eventCount = count }
+        integrations[index].errorMessage = error
+        if state == .connected { integrations[index].lastSync = Date() }
+    }
+
+    private func persist() {
+        guard dataMode == .live else { return }
+        let workspace = PersistedWorkspace(cases: cases, events: rawEvents, configuration: configuration, projectPath: linkedProjectURL?.path)
+        do { try WorkspaceStore.save(workspace) }
+        catch { showToast("Could not save workspace: \(error.localizedDescription)") }
+    }
+
+    static func connectionState(_ source: LogSource, configuration: ProviderConfiguration, events: [LogEvent]) -> IntegrationState {
+        switch source {
+        case .supabase: return !configuration.supabaseProjectRef.isEmpty && CredentialStore.load(source: source) != nil ? .connected : .disconnected
+        case .sentry: return !configuration.sentryOrganization.isEmpty && !configuration.sentryProject.isEmpty && CredentialStore.load(source: source) != nil ? .connected : .disconnected
+        case .render: return !configuration.renderOwnerID.isEmpty && !configuration.renderResourceIDs.isEmpty && CredentialStore.load(source: source) != nil ? .connected : .disconnected
+        case .stripe: return CredentialStore.load(source: source) != nil ? .connected : .disconnected
+        case .revenueCat, .application: return events.contains { $0.source == source } ? .connected : .disconnected
+        }
+    }
+
+    private static func level(for text: String) -> EventLevel {
+        let value = text.lowercased()
+        if value.contains("error") || value.contains("fatal") || value.contains("exception") { return .error }
+        if value.contains("warn") || value.contains("timeout") { return .warning }
+        return .info
+    }
+
+    private static func redacted(_ event: LogEvent) -> LogEvent {
+        LogEvent(
+            id: event.id,
+            timestamp: event.timestamp,
+            source: event.source,
+            level: event.level,
+            title: SecretRedactor.redact(event.title),
+            detail: SecretRedactor.redact(event.detail),
+            requestID: event.requestID,
+            externalID: event.externalID,
+            userID: event.userID.map(SecretRedactor.redact),
+            release: event.release,
+            route: event.route,
+            fingerprint: event.fingerprint,
+            correlation: event.correlation,
+            metadata: SecretRedactor.redact(event.metadata)
+        )
+    }
+
+    private static func reclassifyPersistedCase(_ item: SignalCase) -> SignalCase? {
+        var migrated = item
+        migrated.events = item.events.map(SupabaseProvider.reclassifyPersisted)
+        guard migrated.events.contains(where: SignalDetector.isCandidate) else { return nil }
+        return migrated
+    }
 }
 
 extension SignalCase {
     static let samples: [SignalCase] = {
         let now = Date()
-        return [
+        let samples = [
             SignalCase(
                 id: UUID(uuidString: "99EA0C6C-0F35-4A41-8242-121346330101")!,
                 reference: "SIG-104",
@@ -334,6 +529,11 @@ extension SignalCase {
                 ]
             )
         ]
+        return samples.map { sample in
+            var tagged = sample
+            tagged.isDemo = true
+            tagged.detectionNote = "Demo case built from seeded example events."
+            return tagged
+        }
     }()
 }
-
