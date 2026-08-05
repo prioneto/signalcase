@@ -2,7 +2,7 @@
 
 Signalcase is a native macOS app that turns logs from Supabase, Stripe, Render, RevenueCat, Sentry, and your application into compact, evidence-backed bug cases.
 
-Live data is the default. A separate Demo switch keeps seeded examples available. Grouping and findings are deterministic, so no AI account is required.
+Signalcase only uses connected or imported live data. Grouping and findings are deterministic, so no AI account is required.
 
 ## Native app
 
@@ -18,7 +18,6 @@ Try these flows:
 - Open **Integrations** and save a provider credential. Signalcase only makes read requests, and tokens are stored in macOS Keychain rather than the workspace file. Prefer the narrowest provider permissions available.
 - Click **Sync recent logs**, choose connected sources and a window, then let Signalcase detect cases.
 - Import a JSON, JSONL, or plain-text log file from the sync sheet.
-- Switch to **Demo** to explore seeded cross-service timelines.
 - Advance a case from New → Triaged → Fixing → Verified.
 
 ### Sources

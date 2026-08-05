@@ -10,29 +10,50 @@ final class AppModel: ObservableObject {
     @Published var searchText = ""
     @Published var isCapturePresented = false
     @Published var isIntegrationsPresented = false
+    @Published var isDiagnosticsPresented = false
     @Published var isCapturing = false
     @Published var toastMessage: String?
     @Published var linkedProjectURL: URL?
     @Published var integrations: [Integration]
     @Published var configuration: ProviderConfiguration
-    @Published var dataMode: DataMode = .live
     @Published var receiverStatus = "Receiver stopped"
+    @Published var lastSyncReport: SyncReport?
+    @Published var ignoredFingerprints: [IgnoredFingerprint]
+    @Published var deletedCases: [SignalCase]
 
     private var receiver: LocalEventReceiver?
-    private var savedLiveCases: [SignalCase] = []
-    private var savedLiveEvents: [LogEvent] = []
 
     init(cases suppliedCases: [SignalCase]? = nil) {
         let workspace = WorkspaceStore.load()
         let migratedEvents = workspace.events.map(SupabaseProvider.reclassifyPersisted)
         let migratedCases = workspace.cases.compactMap(Self.reclassifyPersistedCase)
-        let initialCases = suppliedCases ?? migratedCases
+        let ignored = Set(workspace.ignoredFingerprints.map(\.fingerprint))
+        let projectRoot = workspace.projectPath
+            .flatMap { FileManager.default.fileExists(atPath: $0) ? URL(fileURLWithPath: $0, isDirectory: true) : nil }
+        let initialCases: [SignalCase]
+        if let suppliedCases {
+            initialCases = suppliedCases.filter { !ignored.contains($0.fingerprint) }
+        } else {
+            let nextReference = migratedCases
+                .compactMap { Int($0.reference.replacingOccurrences(of: "SIG-", with: "")) }
+                .max() ?? 0
+            let detected = SignalDetector.detect(
+                events: migratedEvents,
+                projectRoot: projectRoot,
+                startingNumber: nextReference
+            )
+            initialCases = SignalDetector.merge(
+                detected: detected.cases.filter { !ignored.contains($0.fingerprint) },
+                into: migratedCases.filter { !ignored.contains($0.fingerprint) }
+            )
+        }
         cases = initialCases
         rawEvents = migratedEvents
         configuration = workspace.configuration
-        if let path = workspace.projectPath, FileManager.default.fileExists(atPath: path) {
-            linkedProjectURL = URL(fileURLWithPath: path, isDirectory: true)
-        }
+        linkedProjectURL = projectRoot
+        lastSyncReport = workspace.lastSyncReport
+        ignoredFingerprints = workspace.ignoredFingerprints
+        deletedCases = workspace.deletedCases
         integrations = [
             .init(source: .supabase, state: Self.connectionState(.supabase, configuration: workspace.configuration, events: migratedEvents), detail: "Auth, database and function logs"),
             .init(source: .stripe, state: Self.connectionState(.stripe, configuration: workspace.configuration, events: migratedEvents), detail: "Events and failed webhook deliveries"),
@@ -47,7 +68,10 @@ final class AppModel: ObservableObject {
                 cases: initialCases,
                 events: migratedEvents,
                 configuration: workspace.configuration,
-                projectPath: workspace.projectPath
+                projectPath: workspace.projectPath,
+                lastSyncReport: workspace.lastSyncReport,
+                ignoredFingerprints: workspace.ignoredFingerprints,
+                deletedCases: workspace.deletedCases
             ))
         }
         startReceiver()
@@ -106,27 +130,8 @@ final class AppModel: ObservableObject {
         showToast("Moved to \(next.title)")
     }
 
-    func setDataMode(_ mode: DataMode) {
-        guard mode != dataMode else { return }
-        if mode == .demo {
-            savedLiveCases = cases
-            savedLiveEvents = rawEvents
-            cases = SignalCase.samples
-            rawEvents = []
-        } else {
-            cases = savedLiveCases
-            rawEvents = savedLiveEvents
-        }
-        dataMode = mode
-        selectedCaseID = nil
-    }
-
     func syncRecentLogs(minutes: Int, sources: Set<LogSource>) async {
         guard !isCapturing else { return }
-        guard dataMode == .live else {
-            showToast("Switch to Live to sync provider data")
-            return
-        }
         let requested = sources.intersection(availableSyncSources)
         guard !requested.isEmpty else {
             isCapturePresented = false
@@ -139,25 +144,40 @@ final class AppModel: ObservableObject {
         let end = Date()
         let start = end.addingTimeInterval(TimeInterval(-minutes * 60))
         var incoming: [LogEvent] = []
+        var unsupported: [EventDiagnostic] = []
+        var sourceErrors: [String] = []
 
         for source in requested.sorted(by: { $0.rawValue < $1.rawValue }) {
             updateIntegration(source, state: .syncing)
             do {
-                let events = try await fetch(source: source, start: start, end: end)
-                incoming.append(contentsOf: events)
-                updateIntegration(source, state: .connected, count: events.count, error: nil)
+                let batch = try await fetch(source: source, start: start, end: end)
+                incoming.append(contentsOf: batch.events)
+                unsupported.append(contentsOf: batch.unsupported)
+                updateIntegration(source, state: .connected, count: batch.events.count + batch.unsupported.count, error: nil)
             } catch {
-                updateIntegration(source, state: .failed, error: SecretRedactor.redact(error.localizedDescription))
+                let message = "\(source.title): \(SecretRedactor.redact(error.localizedDescription))"
+                sourceErrors.append(message)
+                updateIntegration(source, state: .failed, error: message)
             }
         }
 
+        lastSyncReport = SignalDetector.syncReport(
+            events: incoming,
+            unsupported: unsupported,
+            ignoredFingerprints: Set(ignoredFingerprints.map(\.fingerprint)),
+            sources: requested,
+            suppressedEventKeys: Set(deletedCases.flatMap {
+                $0.events.filter(SignalDetector.isCandidate).map(Self.eventStoreKey)
+            }),
+            sourceErrors: sourceErrors
+        )
         ingest(incoming)
-        isCapturePresented = false
         let failed = requested.filter { source in integrations.first(where: { $0.source == source })?.state == .failed }.count
-        if incoming.isEmpty {
+        persist()
+        if incoming.isEmpty && unsupported.isEmpty {
             showToast(failed > 0 ? "Sync finished with connection errors" : "No events found in that time window")
         } else {
-            showToast("Checked \(incoming.count) real events and updated \(cases.count) cases")
+            showToast(lastSyncReport?.summary ?? "Sync complete")
         }
     }
 
@@ -178,10 +198,10 @@ final class AppModel: ObservableObject {
                 showToast("Waiting for the first \(source.title) event")
             } else {
                 updateIntegration(source, state: .syncing)
-                let events = try await fetch(source: source, start: Date().addingTimeInterval(-300), end: Date())
-                updateIntegration(source, state: .connected, count: events.count, error: nil)
-                if !events.isEmpty { ingest(events) }
-                showToast("\(source.title) connected · \(events.count) recent events")
+                let batch = try await fetch(source: source, start: Date().addingTimeInterval(-300), end: Date())
+                updateIntegration(source, state: .connected, count: batch.events.count + batch.unsupported.count, error: nil)
+                if !batch.events.isEmpty { ingest(batch.events) }
+                showToast("\(source.title) connected · \(batch.events.count) recent events")
             }
         } catch {
             updateIntegration(source, state: .failed, error: SecretRedactor.redact(error.localizedDescription))
@@ -193,6 +213,71 @@ final class AppModel: ObservableObject {
         CredentialStore.remove(source: source)
         updateIntegration(source, state: .disconnected, count: 0, error: nil)
         showToast("\(source.title) disconnected")
+    }
+
+    func deleteSelectedCase() {
+        guard let selectedCaseID,
+              let index = cases.firstIndex(where: { $0.id == selectedCaseID }) else { return }
+        let item = cases.remove(at: index)
+        if !deletedCases.contains(where: { $0.id == item.id }) { deletedCases.insert(item, at: 0) }
+        let removedKeys = Set(item.events.filter(SignalDetector.isCandidate).map(Self.eventStoreKey))
+        rawEvents.removeAll { removedKeys.contains(Self.eventStoreKey($0)) }
+        self.selectedCaseID = nil
+        persist()
+        showToast("Deleted this case only · A new occurrence can return")
+    }
+
+    func ignoreSelectedFingerprint() {
+        guard let item = selectedCase else { return }
+        if !ignoredFingerprints.contains(where: { $0.fingerprint == item.fingerprint }) {
+            ignoredFingerprints.insert(
+                IgnoredFingerprint(fingerprint: item.fingerprint, title: item.title, ignoredAt: Date()),
+                at: 0
+            )
+        }
+        let removed = cases.filter { $0.fingerprint == item.fingerprint }
+        for item in removed where !deletedCases.contains(where: { $0.id == item.id }) {
+            deletedCases.insert(item, at: 0)
+        }
+        cases.removeAll { $0.fingerprint == item.fingerprint }
+        selectedCaseID = nil
+        persist()
+        showToast("Muted this error type · Future matches will be hidden")
+    }
+
+    func restoreDeletedCase(_ id: SignalCase.ID) {
+        guard let index = deletedCases.firstIndex(where: { $0.id == id }) else { return }
+        let item = deletedCases.remove(at: index)
+        ignoredFingerprints.removeAll { $0.fingerprint == item.fingerprint }
+        if !cases.contains(where: { $0.id == item.id }) { cases.append(item) }
+        mergeRawEvents(item.events)
+        persist()
+        showToast("Restored \(item.reference)")
+    }
+
+    func restoreFingerprint(_ fingerprint: String) {
+        ignoredFingerprints.removeAll { $0.fingerprint == fingerprint }
+        let restoring = deletedCases.filter { $0.fingerprint == fingerprint }
+        deletedCases.removeAll { $0.fingerprint == fingerprint }
+        for item in restoring where !cases.contains(where: { $0.id == item.id }) {
+            cases.append(item)
+            mergeRawEvents(item.events)
+        }
+        redetectCases()
+        persist()
+        showToast("Error type unmuted")
+    }
+
+    func clearTestData() {
+        cases = []
+        rawEvents = []
+        deletedCases = []
+        ignoredFingerprints = []
+        lastSyncReport = nil
+        selectedCaseID = nil
+        filter = .all
+        persist()
+        showToast("Cleared local cases, events, and diagnostics")
     }
 
     func chooseProject() {
@@ -220,9 +305,22 @@ final class AppModel: ObservableObject {
               let data = try? Data(contentsOf: url) else { return }
 
         var events: [LogEvent] = []
+        var unsupported: [EventDiagnostic] = []
         if let payload = try? JSONSerialization.jsonObject(with: data) {
             let objects = payload as? [Any] ?? [payload]
-            events = objects.compactMap { try? ApplicationEventProvider.normalize($0) }
+            for object in objects {
+                if let event = try? ApplicationEventProvider.normalize(object) {
+                    events.append(event)
+                } else {
+                    unsupported.append(EventDiagnostic(
+                        source: .application,
+                        disposition: .unsupported,
+                        title: "Unsupported imported record",
+                        detail: "The record was not imported.",
+                        reason: "Application events must be JSON objects with recognizable log fields."
+                    ))
+                }
+            }
         } else if let text = String(data: data, encoding: .utf8) {
             for line in text.split(whereSeparator: \Character.isNewline) {
                 if let lineData = String(line).data(using: .utf8),
@@ -235,8 +333,15 @@ final class AppModel: ObservableObject {
                 }
             }
         }
+        lastSyncReport = SignalDetector.syncReport(
+            events: events,
+            unsupported: unsupported,
+            ignoredFingerprints: Set(ignoredFingerprints.map(\.fingerprint)),
+            sources: [.application]
+        )
         ingest(events)
-        showToast(events.isEmpty ? "No readable log events found" : "Imported \(events.count) events")
+        persist()
+        showToast(lastSyncReport?.summary ?? "No readable log events found")
     }
 
     func openCode(_ reference: CodeReference) {
@@ -280,23 +385,25 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func fetch(source: LogSource, start: Date, end: Date) async throws -> [LogEvent] {
+    private func fetch(source: LogSource, start: Date, end: Date) async throws -> ProviderBatch {
         let token = CredentialStore.load(source: source, kind: .apiToken) ?? ""
         switch source {
-        case .supabase: return try await SupabaseProvider.fetch(configuration: configuration, token: token, start: start, end: end)
-        case .stripe: return try await StripeProvider.fetch(token: token, start: start, end: end)
-        case .render: return try await RenderProvider.fetch(configuration: configuration, token: token, start: start, end: end)
-        case .sentry: return try await SentryProvider.fetch(configuration: configuration, token: token, start: start, end: end)
+        case .supabase: return try await SupabaseProvider.fetchBatch(configuration: configuration, token: token, start: start, end: end)
+        case .stripe: return try await StripeProvider.fetchBatch(token: token, start: start, end: end)
+        case .render: return try await RenderProvider.fetchBatch(configuration: configuration, token: token, start: start, end: end)
+        case .sentry: return try await SentryProvider.fetchBatch(configuration: configuration, token: token, start: start, end: end)
         case .revenueCat, .application:
-            return rawEvents.filter { $0.source == source && $0.timestamp >= start && $0.timestamp <= end }
+            return ProviderBatch(events: rawEvents.filter { $0.source == source && $0.timestamp >= start && $0.timestamp <= end })
         }
     }
 
     private func ingest(_ events: [LogEvent]) {
         guard !events.isEmpty else { return }
-        let redacted = events.map(Self.redacted)
+        let tombstones = Set(deletedCases.flatMap { $0.events.filter(SignalDetector.isCandidate).map(Self.eventStoreKey) })
+        let redacted = events.map(Self.redacted).filter { !tombstones.contains(Self.eventStoreKey($0)) }
         var seen = Set<String>()
-        rawEvents = (rawEvents + redacted).filter { event in
+        // Prefer the freshly normalized version when a provider returns an event we already stored.
+        rawEvents = (redacted + rawEvents).filter { event in
             let key = event.externalID.map { "\(event.source.rawValue):\($0)" }
                 ?? "\(event.source.rawValue):\(event.timestamp.timeIntervalSince1970):\(event.fingerprint)"
             return seen.insert(key).inserted
@@ -305,7 +412,8 @@ final class AppModel: ObservableObject {
 
         let next = cases.compactMap { Int($0.reference.replacingOccurrences(of: "SIG-", with: "")) }.max() ?? 0
         let detected = SignalDetector.detect(events: rawEvents, projectRoot: linkedProjectURL, startingNumber: next)
-        cases = SignalDetector.merge(detected: detected.cases, into: cases.filter { !$0.isDemo })
+        let ignored = Set(ignoredFingerprints.map(\.fingerprint))
+        cases = SignalDetector.merge(detected: detected.cases.filter { !ignored.contains($0.fingerprint) }, into: cases)
         selectedCaseID = cases.first?.id
         filter = .all
         persist()
@@ -338,8 +446,15 @@ final class AppModel: ObservableObject {
     }
 
     private func persist() {
-        guard dataMode == .live else { return }
-        let workspace = PersistedWorkspace(cases: cases, events: rawEvents, configuration: configuration, projectPath: linkedProjectURL?.path)
+        let workspace = PersistedWorkspace(
+            cases: cases,
+            events: rawEvents,
+            configuration: configuration,
+            projectPath: linkedProjectURL?.path,
+            lastSyncReport: lastSyncReport,
+            ignoredFingerprints: ignoredFingerprints,
+            deletedCases: deletedCases
+        )
         do { try WorkspaceStore.save(workspace) }
         catch { showToast("Could not save workspace: \(error.localizedDescription)") }
     }
@@ -380,160 +495,30 @@ final class AppModel: ObservableObject {
         )
     }
 
+    private func mergeRawEvents(_ events: [LogEvent]) {
+        var seen = Set(rawEvents.map(Self.eventStoreKey))
+        rawEvents.append(contentsOf: events.filter { seen.insert(Self.eventStoreKey($0)).inserted })
+        rawEvents.sort { $0.timestamp > $1.timestamp }
+    }
+
+    private func redetectCases() {
+        let next = (cases + deletedCases)
+            .compactMap { Int($0.reference.replacingOccurrences(of: "SIG-", with: "")) }
+            .max() ?? 0
+        let detected = SignalDetector.detect(events: rawEvents, projectRoot: linkedProjectURL, startingNumber: next)
+        let ignored = Set(ignoredFingerprints.map(\.fingerprint))
+        cases = SignalDetector.merge(detected: detected.cases.filter { !ignored.contains($0.fingerprint) }, into: cases)
+    }
+
+    private static func eventStoreKey(_ event: LogEvent) -> String {
+        event.externalID.map { "\(event.source.rawValue):external:\($0)" }
+            ?? "\(event.source.rawValue):\(event.timestamp.timeIntervalSince1970):\(event.fingerprint)"
+    }
+
     private static func reclassifyPersistedCase(_ item: SignalCase) -> SignalCase? {
         var migrated = item
         migrated.events = item.events.map(SupabaseProvider.reclassifyPersisted)
         guard migrated.events.contains(where: SignalDetector.isCandidate) else { return nil }
         return migrated
     }
-}
-
-extension SignalCase {
-    static let samples: [SignalCase] = {
-        let now = Date()
-        let samples = [
-            SignalCase(
-                id: UUID(uuidString: "99EA0C6C-0F35-4A41-8242-121346330101")!,
-                reference: "SIG-104",
-                title: "Checkout webhook fails after the latest deploy",
-                summary: "Successful Stripe checkouts reach the application, but the webhook handler fails before the Supabase profile is upgraded.",
-                status: .new,
-                severity: .critical,
-                occurrenceCount: 12,
-                affectedUsers: 7,
-                firstSeen: now.addingTimeInterval(-3_540),
-                lastSeen: now.addingTimeInterval(-210),
-                release: "fitref-web · 9f3a1b",
-                environment: "Production",
-                fingerprint: "supabase:null-customer-id:stripe-webhook",
-                events: [
-                    .init(timestamp: now.addingTimeInterval(-3_990), source: .render, level: .deploy, title: "Deploy 9f3a1b became live", detail: "fitref-web · production"),
-                    .init(timestamp: now.addingTimeInterval(-3_548), source: .stripe, level: .success, title: "checkout.session.completed", detail: "€19.99 · customer cus_Q91 · event evt_731", requestID: "req_91d"),
-                    .init(timestamp: now.addingTimeInterval(-3_546), source: .application, level: .info, title: "POST /api/webhooks/stripe", detail: "Received evt_731", requestID: "req_91d"),
-                    .init(timestamp: now.addingTimeInterval(-3_545), source: .supabase, level: .error, title: "Profile update rejected", detail: "23502 · null value in column customer_id", requestID: "req_91d"),
-                    .init(timestamp: now.addingTimeInterval(-3_544), source: .stripe, level: .error, title: "Webhook delivery returned 500", detail: "Endpoint will be retried", requestID: "req_91d")
-                ],
-                findings: [
-                    .init(title: "Payment succeeded", detail: "Stripe completed the checkout and emitted evt_731.", tone: .good),
-                    .init(title: "Application processing failed", detail: "The webhook returned 500 after Supabase rejected a null customer_id.", tone: .failure),
-                    .init(title: "First seen after deploy 9f3a1b", detail: "The first matching error appeared 7 minutes after the release became live.", tone: .warning)
-                ],
-                codeReferences: [
-                    .init(path: "app/api/webhooks/stripe/route.ts", line: 184, reason: "Writes the Stripe customer mapping"),
-                    .init(path: "supabase/migrations/20260804_customer_id.sql", line: 12, reason: "Makes customer_id required")
-                ],
-                reproduction: [
-                    "Create a Stripe test checkout for a user without stripe_customer_id.",
-                    "Deliver checkout.session.completed to the webhook route.",
-                    "Confirm the profile update fails with SQLSTATE 23502."
-                ]
-            ),
-            SignalCase(
-                id: UUID(uuidString: "E230A6FD-17D4-41C8-9AA3-30AE56A90202")!,
-                reference: "SIG-103",
-                title: "Renewed subscribers are not receiving Pro access",
-                summary: "RevenueCat records a successful renewal, but the matching Supabase entitlement row remains expired for a subset of subscribers.",
-                status: .triaged,
-                severity: .high,
-                occurrenceCount: 8,
-                affectedUsers: 8,
-                firstSeen: now.addingTimeInterval(-10_800),
-                lastSeen: now.addingTimeInterval(-1_440),
-                release: "subscription-sync · 51be22",
-                environment: "Production",
-                fingerprint: "revenuecat:renewal:entitlement-sync-timeout",
-                events: [
-                    .init(timestamp: now.addingTimeInterval(-10_810), source: .revenueCat, level: .success, title: "RENEWAL", detail: "pro_monthly · app user usr_844", requestID: "rc_evt_54"),
-                    .init(timestamp: now.addingTimeInterval(-10_807), source: .application, level: .info, title: "RevenueCat webhook received", detail: "Entitlements: pro", requestID: "rc_evt_54"),
-                    .init(timestamp: now.addingTimeInterval(-10_802), source: .supabase, level: .warning, title: "Edge Function timed out", detail: "subscription-sync exceeded 5 seconds", requestID: "rc_evt_54"),
-                    .init(timestamp: now.addingTimeInterval(-10_780), source: .supabase, level: .error, title: "Entitlement remained expired", detail: "profiles.pro_until was not updated", requestID: "rc_evt_54")
-                ],
-                findings: [
-                    .init(title: "RevenueCat renewed the subscription", detail: "The production renewal contains the expected Pro entitlement.", tone: .good),
-                    .init(title: "The sync function timed out", detail: "All eight affected users have a five-second Edge Function timeout.", tone: .failure),
-                    .init(title: "The event is safe to retry", detail: "The webhook event ID is stable and no successful write is present.", tone: .neutral)
-                ],
-                codeReferences: [
-                    .init(path: "supabase/functions/revenuecat-webhook/index.ts", line: 96, reason: "Synchronizes pro_until")
-                ],
-                reproduction: [
-                    "Use a renewal payload with an existing expired profile.",
-                    "Delay the profile query beyond five seconds.",
-                    "Verify the handler records a retryable failure instead of returning success."
-                ]
-            ),
-            SignalCase(
-                id: UUID(uuidString: "1173C01B-D117-4DB1-980D-8F6750900303")!,
-                reference: "SIG-101",
-                title: "Profile reads are denied after team invitations",
-                summary: "Newly invited team members can authenticate, but their first profile request is rejected by an RLS policy.",
-                status: .fixing,
-                severity: .high,
-                occurrenceCount: 31,
-                affectedUsers: 14,
-                firstSeen: now.addingTimeInterval(-86_400),
-                lastSeen: now.addingTimeInterval(-2_900),
-                release: "fitref-web · 28cc04",
-                environment: "Production",
-                fingerprint: "supabase:42501:team-profile-select",
-                events: [
-                    .init(timestamp: now.addingTimeInterval(-4_200), source: .supabase, level: .success, title: "Auth login succeeded", detail: "email provider · user usr_101", requestID: "sb_req_17"),
-                    .init(timestamp: now.addingTimeInterval(-4_199), source: .application, level: .info, title: "GET /rest/v1/profiles", detail: "team_id=eq.team_28", requestID: "sb_req_17"),
-                    .init(timestamp: now.addingTimeInterval(-4_198), source: .supabase, level: .error, title: "RLS policy denied profile read", detail: "42501 · permission denied for table profiles", requestID: "sb_req_17"),
-                    .init(timestamp: now.addingTimeInterval(-4_197), source: .sentry, level: .error, title: "ProfileBootstrapError", detail: "14 affected users · release 28cc04", requestID: "sb_req_17")
-                ],
-                findings: [
-                    .init(title: "Authentication is working", detail: "Every affected request follows a successful Supabase login.", tone: .good),
-                    .init(title: "One RLS policy rejects invited members", detail: "Owners succeed; users with membership role=member receive SQLSTATE 42501.", tone: .failure),
-                    .init(title: "Fix branch is linked", detail: "The policy update is ready for verification in the local project.", tone: .neutral)
-                ],
-                codeReferences: [
-                    .init(path: "supabase/migrations/20260803_team_profile_policy.sql", line: 23, reason: "Restricts profile reads to owners")
-                ],
-                reproduction: [
-                    "Invite a new member to an existing team.",
-                    "Sign in with the invited account.",
-                    "Load the dashboard and observe the denied profiles query."
-                ]
-            ),
-            SignalCase(
-                id: UUID(uuidString: "7E945CD3-421A-4FCF-B499-EAE0C5050404")!,
-                reference: "SIG-98",
-                title: "Worker processed the same payment event twice",
-                summary: "A Render worker restart caused one Stripe event to be handled twice. The handler now guards on the event ID.",
-                status: .verified,
-                severity: .normal,
-                occurrenceCount: 2,
-                affectedUsers: 1,
-                firstSeen: now.addingTimeInterval(-250_000),
-                lastSeen: now.addingTimeInterval(-249_940),
-                release: "billing-worker · 198ae0",
-                environment: "Production",
-                fingerprint: "stripe:duplicate-event:invoice-paid",
-                events: [
-                    .init(timestamp: now.addingTimeInterval(-250_000), source: .stripe, level: .success, title: "invoice.paid", detail: "evt_paid_88 delivered", requestID: "evt_paid_88"),
-                    .init(timestamp: now.addingTimeInterval(-249_980), source: .render, level: .warning, title: "Worker restarted", detail: "Instance exceeded memory limit"),
-                    .init(timestamp: now.addingTimeInterval(-249_940), source: .stripe, level: .warning, title: "invoice.paid retried", detail: "evt_paid_88 delivered again", requestID: "evt_paid_88"),
-                    .init(timestamp: now.addingTimeInterval(-86_000), source: .application, level: .success, title: "Idempotency regression test passed", detail: "Duplicate event created one ledger row", requestID: "evt_paid_88")
-                ],
-                findings: [
-                    .init(title: "Duplicate event ID confirmed", detail: "Both deliveries used evt_paid_88.", tone: .failure),
-                    .init(title: "Idempotency guard verified", detail: "Build 198ae0 creates one ledger row when the event is delivered twice.", tone: .good)
-                ],
-                codeReferences: [
-                    .init(path: "workers/billing.ts", line: 62, reason: "Checks processed Stripe event IDs")
-                ],
-                reproduction: [
-                    "Deliver the same invoice.paid payload twice.",
-                    "Confirm only one billing ledger row exists."
-                ]
-            )
-        ]
-        return samples.map { sample in
-            var tagged = sample
-            tagged.isDemo = true
-            tagged.detectionNote = "Demo case built from seeded example events."
-            return tagged
-        }
-    }()
 }

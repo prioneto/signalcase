@@ -76,7 +76,7 @@ body::before {
 .node-four { left: 21%; bottom: 3%; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.demo-shell { overflow: hidden; border: 1px solid var(--line); border-radius: 25px; background: #0d100e; box-shadow: 0 50px 130px rgba(0,0,0,.38); }
+.preview-shell { overflow: hidden; border: 1px solid var(--line); border-radius: 25px; background: #0d100e; box-shadow: 0 50px 130px rgba(0,0,0,.38); }
 .window-bar { height: 54px; display: flex; align-items: center; border-bottom: 1px solid var(--line); background: #111411; position: relative; }
 .traffic { display: flex; gap: 7px; margin-left: 18px; }
 .traffic span { width: 11px; height: 11px; border-radius: 50%; background: #ff625a; }
@@ -194,7 +194,7 @@ footer > span { margin-left: auto; color: var(--muted); font: 700 8px var(--mono
 
 @media (max-width: 1120px) {
   .product { grid-template-columns: 170px 300px 620px; width: 1090px; }
-  .demo-shell { overflow-x: auto; }
+  .preview-shell { overflow-x: auto; }
   .signal-orbit { width: 380px; }
 }
 
@@ -216,4 +216,3 @@ footer > span { margin-left: auto; color: var(--muted); font: 700 8px var(--mono
   html { scroll-behavior: auto; }
   .orbit-two { animation: none; }
 }
-

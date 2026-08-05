@@ -24,12 +24,17 @@ struct RootView: View {
             SidebarView()
                 .frame(width: 232)
 
-            if let item = model.selectedCase {
-                CaseDetailView(item: item)
-                    .id(item.id)
-            } else {
-                CaseListView()
+            Rectangle().fill(SignalTheme.border).frame(width: 1)
+
+            Group {
+                if let item = model.selectedCase {
+                    CaseDetailView(item: item)
+                        .id(item.id)
+                } else {
+                    CaseListView()
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(SignalTheme.background)
         .foregroundStyle(SignalTheme.text)
@@ -49,10 +54,14 @@ struct RootView: View {
             IntegrationsSheet()
                 .environmentObject(model)
         }
+        .sheet(isPresented: $model.isDiagnosticsPresented) {
+            DiagnosticsSheet()
+                .environmentObject(model)
+        }
     }
 }
 
-private struct SidebarView: View {
+private struct LegacySidebarView: View {
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
@@ -81,25 +90,6 @@ private struct SidebarView: View {
             .buttonStyle(ScaleButtonStyle())
             .padding(.horizontal, 14)
             .padding(.top, 28)
-
-            HStack(spacing: 4) {
-                ForEach(DataMode.allCases) { mode in
-                    Button { model.setDataMode(mode) } label: {
-                        Text(mode.title)
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
-                            .foregroundStyle(model.dataMode == mode ? SignalTheme.text : SignalTheme.muted)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 30)
-                            .background(model.dataMode == mode ? SignalTheme.raised : Color.clear, in: RoundedRectangle(cornerRadius: 9))
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(HoverButtonStyle())
-                }
-            }
-            .padding(4)
-            .background(SignalTheme.background, in: RoundedRectangle(cornerRadius: 12))
-            .padding(.horizontal, 14)
-            .padding(.top, 10)
 
             Text("INBOX")
                 .sectionLabel()
@@ -240,7 +230,7 @@ private struct SidebarView: View {
     }
 }
 
-private struct CaseListView: View {
+private struct LegacyCaseListView: View {
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
@@ -288,24 +278,22 @@ private struct CaseListView: View {
                     Image(systemName: "waveform.path.ecg")
                         .font(.system(size: 24))
                         .foregroundStyle(SignalTheme.muted)
-                    Text(model.dataMode == .live ? "No real cases yet" : "No matching cases")
+                    Text("No real cases yet")
                         .font(.system(size: 12, weight: .semibold))
-                    if model.dataMode == .live {
-                        Text("Connect a source, then sync recent activity.\nOnly errors and unusual warnings become cases.")
-                            .font(.system(size: 10))
-                            .foregroundStyle(SignalTheme.muted)
-                            .multilineTextAlignment(.center)
-                            .lineSpacing(3)
-                        Button("Connect sources") { model.isIntegrationsPresented = true }
-                            .buttonStyle(PrimaryButtonStyle())
-                    }
+                    Text("Connect a source, then sync recent activity.\nOnly errors and unusual warnings become cases.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(SignalTheme.muted)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(3)
+                    Button("Connect sources") { model.isIntegrationsPresented = true }
+                        .buttonStyle(PrimaryButtonStyle())
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(model.filteredCases) { item in
-                            CaseRow(item: item, isSelected: model.selectedCaseID == item.id) {
+                            LegacyCaseRow(item: item, isSelected: model.selectedCaseID == item.id) {
                                 model.select(item)
                             }
                         }
@@ -317,7 +305,7 @@ private struct CaseListView: View {
     }
 }
 
-private struct CaseRow: View {
+private struct LegacyCaseRow: View {
     let item: SignalCase
     let isSelected: Bool
     let action: () -> Void
@@ -381,6 +369,8 @@ private struct CaseRow: View {
 private struct CaseDetailView: View {
     @EnvironmentObject private var model: AppModel
     let item: SignalCase
+    @State private var confirmDelete = false
+    @State private var confirmIgnore = false
 
     var body: some View {
         ScrollView {
@@ -392,14 +382,35 @@ private struct CaseDetailView: View {
                 timelineSection
                 lowerSection
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 34)
             .padding(.bottom, 44)
         }
         .background(SignalTheme.background)
+        .alert("Delete only this case?", isPresented: $confirmDelete) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete this case", role: .destructive) { model.deleteSelectedCase() }
+        } message: {
+            Text("This removes \(item.reference) and the events already collected for it. If the error happens again, Signalcase will create a new case. You can restore this one from Event diagnostics.")
+        }
+        .alert("Mute this error type?", isPresented: $confirmIgnore) {
+            Button("Cancel", role: .cancel) {}
+            Button("Mute future occurrences", role: .destructive) { model.ignoreSelectedFingerprint() }
+        } message: {
+            Text("This removes the current case and stops every future occurrence of the same error pattern from creating a case. You can unmute it from Event diagnostics.")
+        }
     }
 
     private var detailHeader: some View {
         HStack(spacing: 12) {
+            Button { model.showCaseList() } label: {
+                Label("Cases", systemImage: "chevron.left")
+                    .compactAction()
+            }
+            .buttonStyle(HoverButtonStyle())
+
+            Rectangle().fill(SignalTheme.border).frame(width: 1, height: 22)
+
             Text(item.reference)
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                 .foregroundStyle(SignalTheme.muted)
@@ -412,13 +423,6 @@ private struct CaseDetailView: View {
                     .foregroundStyle(color(for: item.status))
             }
 
-            Text(item.isDemo ? "DEMO DATA" : "LIVE DATA")
-                .font(.system(size: 7, weight: .black, design: .monospaced))
-                .foregroundStyle(item.isDemo ? SignalTheme.yellow : SignalTheme.lime)
-                .padding(.horizontal, 8)
-                .frame(height: 22)
-                .background((item.isDemo ? SignalTheme.yellow : SignalTheme.lime).opacity(0.08), in: Capsule())
-
             Spacer()
 
             Button { model.copySelectedCase() } label: {
@@ -426,6 +430,18 @@ private struct CaseDetailView: View {
                     .compactAction()
             }
             .buttonStyle(HoverButtonStyle())
+
+            Menu {
+                Button("Mute this error type", systemImage: "speaker.slash") { confirmIgnore = true }
+                Divider()
+                Button("Delete this case only", systemImage: "trash", role: .destructive) { confirmDelete = true }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .compactAction()
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
 
             if let next = item.status.next {
                 Button { model.advanceSelectedCase() } label: {
@@ -821,7 +837,13 @@ private struct CaptureSheet: View {
                     .buttonStyle(QuietButtonStyle())
 
                 Button {
-                    Task { await model.syncRecentLogs(minutes: minutes, sources: selectedSources) }
+                    Task {
+                        await model.syncRecentLogs(minutes: minutes, sources: selectedSources)
+                        guard model.lastSyncReport != nil else { return }
+                        model.isCapturePresented = false
+                        try? await Task.sleep(for: .milliseconds(220))
+                        model.isDiagnosticsPresented = true
+                    }
                 } label: {
                     HStack(spacing: 9) {
                         if model.isCapturing {
@@ -1062,7 +1084,6 @@ private struct IntegrationsSheet: View {
         case .syncing: "CHECKING…"
         case .failed: "NEEDS ATTENTION"
         case .disconnected, .available: "NOT SET UP"
-        case .demo: "DEMO"
         }
     }
 

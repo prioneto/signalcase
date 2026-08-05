@@ -4,7 +4,7 @@ import { useState } from "react";
 
 type Source = "SB" | "ST" | "RD" | "RC" | "SN";
 
-type DemoCase = {
+type ProductCase = {
   id: string;
   title: string;
   status: string;
@@ -18,7 +18,7 @@ type DemoCase = {
   code: string;
 };
 
-const initialCases: DemoCase[] = [
+const productPreviewCases: ProductCase[] = [
   {
     id: "SIG-104",
     title: "Checkout webhook fails after the latest deploy",
@@ -94,41 +94,9 @@ const sourceName: Record<Source, string> = {
 };
 
 export default function Home() {
-  const [cases, setCases] = useState(initialCases);
-  const [selectedID, setSelectedID] = useState(initialCases[0].id);
-  const [capturing, setCapturing] = useState(false);
+  const cases = productPreviewCases;
+  const [selectedID, setSelectedID] = useState(productPreviewCases[0].id);
   const selected = cases.find((item) => item.id === selectedID) ?? cases[0];
-
-  function captureDemo() {
-    setCapturing(true);
-    window.setTimeout(() => {
-      const captured: DemoCase = {
-        id: "SIG-105",
-        title: "Profile export worker queries a missing column",
-        status: "NEW",
-        severity: "HIGH",
-        occurrences: 4,
-        users: 3,
-        sources: ["RD", "SB"],
-        summary: "A request ID connects the export action, background worker, and database schema error.",
-        findings: [
-          { tone: "good", title: "One operation identified", body: "req_export_92 links all four related events." },
-          { tone: "bad", title: "Worker and schema disagree", body: "The worker queries profile_snapshot, which does not exist." },
-          { tone: "warn", title: "Started after release 7c21d8e", body: "First seen six minutes after the Render deploy." },
-        ],
-        events: [
-          { time: "15:41:02", source: "RD", title: "Export job accepted", detail: "profile-export · req_export_92" },
-          { time: "15:41:04", source: "SB", title: "Postgres query failed", detail: "42703 · profile_snapshot does not exist" },
-          { time: "15:41:05", source: "RD", title: "Worker scheduled retry", detail: "profile-export.ts:47 · retry 1 of 3" },
-        ],
-        code: "workers/profile-export.ts:47",
-      };
-      setCases((current) => [captured, ...current]);
-      setSelectedID(captured.id);
-      setCapturing(false);
-      document.querySelector("#demo")?.scrollIntoView({ behavior: "smooth", block: "center" });
-    }, 850);
-  }
 
   return (
     <main>
@@ -140,9 +108,9 @@ export default function Home() {
         <div className="nav-links">
           <a href="#workflow">Workflow</a>
           <a href="#sources">Sources</a>
-          <a href="#demo">Demo</a>
+          <a href="#preview">Product</a>
         </div>
-        <a className="nav-cta" href="#demo">See the prototype <span>↘</span></a>
+        <a className="nav-cta" href="#preview">See the product <span>↘</span></a>
       </nav>
 
       <section className="hero shell" id="top">
@@ -151,9 +119,7 @@ export default function Home() {
           <h1>Your logs already know <em>what broke.</em></h1>
           <p>Signalcase connects the events around a failure and hands developers one compact, reproducible case—without searching five dashboards.</p>
           <div className="hero-actions">
-            <button className="primary" onClick={captureDemo} disabled={capturing}>
-              {capturing ? "Grouping events…" : "Capture a demo case"} <span>{capturing ? "·" : "→"}</span>
-            </button>
+            <a className="primary" href="#preview">See Signalcase <span>→</span></a>
             <a className="secondary" href="#workflow">See how it works</a>
           </div>
           <div className="hero-proof">
@@ -178,16 +144,16 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="demo-shell shell" id="demo">
+      <section className="preview-shell shell" id="preview">
         <div className="window-bar">
           <div className="traffic"><span /><span /><span /></div>
           <div className="window-title">Signalcase · fitref</div>
-          <button className="capture-small" onClick={captureDemo} disabled={capturing}>{capturing ? "Capturing…" : "⌁ Capture 15 min"}</button>
+          <span className="capture-small">⌁ Sync recent logs</span>
         </div>
         <div className="product">
           <aside className="product-side">
             <div className="mini-brand"><b>⌁</b><span>SIGNALCASE</span></div>
-            <button className="side-capture" onClick={captureDemo}>＋ Capture logs</button>
+            <span className="side-capture">＋ Sync logs</span>
             <small>INBOX</small>
             <button className="side-nav active"><span>All cases</span><b>{cases.length}</b></button>
             <button className="side-nav"><span>New</span><b>{cases.filter((item) => item.status === "NEW").length}</b></button>
@@ -273,10 +239,10 @@ export default function Home() {
       <section className="closing shell">
         <span className="closing-label">BUILT FOR THE BUG BETWEEN DASHBOARDS</span>
         <h2>Stop searching.<br /><em>Start reproducing.</em></h2>
-        <button className="primary" onClick={captureDemo}>Capture a demo case <span>→</span></button>
+        <a className="primary" href="#sources">See supported sources <span>→</span></a>
       </section>
 
-      <footer className="shell"><div className="brand"><span className="brand-mark">⌁</span><span>SIGNALCASE</span></div><p>Native bug evidence for small development teams.</p><span>LOCAL PROTOTYPE · 2026</span></footer>
+      <footer className="shell"><div className="brand"><span className="brand-mark">⌁</span><span>SIGNALCASE</span></div><p>Native bug evidence for small development teams.</p><span>MACOS · 2026</span></footer>
     </main>
   );
 }
@@ -288,4 +254,3 @@ function SourceBadge({ source }: { source: Source }) {
 function SourcePills({ sources }: { sources: Source[] }) {
   return <span className="source-pills">{sources.map((source) => <SourceBadge key={source} source={source} />)}</span>;
 }
-

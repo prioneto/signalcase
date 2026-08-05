@@ -1,5 +1,12 @@
 import Foundation
 
+struct ProviderBatch {
+    var events: [LogEvent]
+    var unsupported: [EventDiagnostic] = []
+
+    static let empty = ProviderBatch(events: [])
+}
+
 enum ProviderError: LocalizedError {
     case invalidConfiguration(String)
     case invalidResponse
@@ -35,12 +42,12 @@ enum APIClient {
 }
 
 enum SupabaseProvider {
-    static func fetch(
+    static func fetchBatch(
         configuration: ProviderConfiguration,
         token: String,
         start: Date,
         end: Date
-    ) async throws -> [LogEvent] {
+    ) async throws -> ProviderBatch {
         guard !configuration.supabaseProjectRef.isEmpty else {
             throw ProviderError.invalidConfiguration("Enter the Supabase project reference.")
         }
@@ -72,12 +79,30 @@ enum SupabaseProvider {
             .init(name: "iso_timestamp_end", value: iso.string(from: end))
         ]
         let payload = try await APIClient.json(url: components.url!, headers: ["Authorization": "Bearer \(token)"])
-        return normalize(payload)
+        let events = normalize(payload)
+        return ProviderBatch(
+            events: events,
+            unsupported: unsupportedDiagnostics(
+                payload: payload,
+                normalizedCount: events.count,
+                source: .supabase,
+                reason: "The Supabase row did not include the standard event_message fields Signalcase understands."
+            )
+        )
+    }
+
+    static func fetch(
+        configuration: ProviderConfiguration,
+        token: String,
+        start: Date,
+        end: Date
+    ) async throws -> [LogEvent] {
+        try await fetchBatch(configuration: configuration, token: token, start: start, end: end).events
     }
 
     static func normalize(_ payload: Any) -> [LogEvent] {
         rows(from: payload).compactMap { row in
-            let message = string(row, "event_message") ?? string(row, "message") ?? "Supabase log event"
+            guard let message = nonempty(string(row, "event_message")) ?? nonempty(string(row, "message")) else { return nil }
             let sourceName = string(row, "source") ?? string(row, "source_name") ?? "supabase"
             let severity = nonempty(string(row, "error_severity"))
                 ?? nonempty(string(row, "severity_text"))
@@ -169,7 +194,8 @@ enum SupabaseProvider {
         let text = message.lowercased()
         let errorPattern = #"\b(error|fatal|panic|exception|failed|failure|denied)\b"#
         if text.range(of: errorPattern, options: .regularExpression) != nil { return .error }
-        if text.contains("timeout") || text.contains("timed out") { return .warning }
+        let timeoutPattern = #"\b(timeout|timed out)\b"#
+        if text.range(of: timeoutPattern, options: .regularExpression) != nil { return .warning }
         return .info
     }
 
@@ -187,6 +213,16 @@ enum SupabaseProvider {
 }
 
 enum SentryProvider {
+    static func fetchBatch(
+        configuration: ProviderConfiguration,
+        token: String,
+        start: Date,
+        end: Date
+    ) async throws -> ProviderBatch {
+        let events = try await fetch(configuration: configuration, token: token, start: start, end: end)
+        return ProviderBatch(events: events)
+    }
+
     static func fetch(
         configuration: ProviderConfiguration,
         token: String,
@@ -300,13 +336,26 @@ enum SentryProvider {
 }
 
 enum StripeProvider {
-    static func fetch(token: String, start: Date, end: Date) async throws -> [LogEvent] {
+    static func fetchBatch(token: String, start: Date, end: Date) async throws -> ProviderBatch {
         guard !token.isEmpty else { throw ProviderError.invalidConfiguration("Enter a restricted Stripe key with read access to Events.") }
         async let allPayload = request(token: token, start: start, end: end, failuresOnly: false)
         async let failedPayload = request(token: token, start: start, end: end, failuresOnly: true)
         let (all, failed) = try await (allPayload, failedPayload)
         let failedIDs = Set(rows(from: failed).compactMap { string($0, "id") })
-        return normalize(all, failedDeliveryIDs: failedIDs)
+        let events = normalize(all, failedDeliveryIDs: failedIDs)
+        return ProviderBatch(
+            events: events,
+            unsupported: unsupportedDiagnostics(
+                payload: all,
+                normalizedCount: events.count,
+                source: .stripe,
+                reason: "The Stripe event was missing its event type or event ID."
+            )
+        )
+    }
+
+    static func fetch(token: String, start: Date, end: Date) async throws -> [LogEvent] {
+        try await fetchBatch(token: token, start: start, end: end).events
     }
 
     private static func request(token: String, start: Date, end: Date, failuresOnly: Bool) async throws -> Any {
@@ -361,12 +410,12 @@ enum StripeProvider {
 }
 
 enum RenderProvider {
-    static func fetch(
+    static func fetchBatch(
         configuration: ProviderConfiguration,
         token: String,
         start: Date,
         end: Date
-    ) async throws -> [LogEvent] {
+    ) async throws -> ProviderBatch {
         let resources = configuration.renderResourceIDs
             .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -390,6 +439,7 @@ enum RenderProvider {
         async let logPayload = APIClient.json(url: logURL, headers: ["Authorization": "Bearer \(token)"])
 
         var deployEvents: [LogEvent] = []
+        var unsupported: [EventDiagnostic] = []
         for resource in resources {
             var deployComponents = URLComponents(string: "https://api.render.com/v1/services/\(resource)/deploys")!
             deployComponents.queryItems = [
@@ -397,16 +447,40 @@ enum RenderProvider {
                 .init(name: "limit", value: "20")
             ]
             if let payload = try? await APIClient.json(url: deployComponents.url!, headers: ["Authorization": "Bearer \(token)"]) {
-                deployEvents.append(contentsOf: normalizeDeploys(payload, resourceID: resource))
+                let normalized = normalizeDeploys(payload, resourceID: resource)
+                deployEvents.append(contentsOf: normalized)
+                unsupported.append(contentsOf: unsupportedDiagnostics(
+                    payload: payload,
+                    normalizedCount: normalized.count,
+                    source: .render,
+                    reason: "The Render deploy record was missing its deploy ID."
+                ))
             }
         }
-        return normalizeLogs(try await logPayload) + deployEvents
+        let payload = try await logPayload
+        let logs = normalizeLogs(payload)
+        unsupported.append(contentsOf: unsupportedDiagnostics(
+            payload: payload,
+            normalizedCount: logs.count,
+            source: .render,
+            reason: "The Render log record did not contain a message field."
+        ))
+        return ProviderBatch(events: logs + deployEvents, unsupported: unsupported)
+    }
+
+    static func fetch(
+        configuration: ProviderConfiguration,
+        token: String,
+        start: Date,
+        end: Date
+    ) async throws -> [LogEvent] {
+        try await fetchBatch(configuration: configuration, token: token, start: start, end: end).events
     }
 
     static func normalizeLogs(_ payload: Any) -> [LogEvent] {
         rows(from: payload).compactMap { row in
             let labels = labelsDictionary(row["labels"])
-            let message = string(row, "message") ?? string(row, "text") ?? string(row, "log") ?? "Render log event"
+            guard let message = nonempty(string(row, "message")) ?? nonempty(string(row, "text")) ?? nonempty(string(row, "log")) else { return nil }
             let levelString = (string(row, "level") ?? labels["level"] ?? "info").lowercased()
             let level: EventLevel = levelString.contains("error") || levelString.contains("fatal")
                 ? .error
@@ -494,7 +568,11 @@ enum ApplicationEventProvider {
         guard let event = payload as? [String: Any] else {
             throw ProviderError.unsupportedPayload("Application events must be JSON objects.")
         }
-        let message = string(event, "message") ?? string(event, "detail") ?? "Application event"
+        guard let message = nonempty(string(event, "message"))
+            ?? nonempty(string(event, "detail"))
+            ?? nonempty(string(event, "title")) else {
+            throw ProviderError.unsupportedPayload("Application events need a message, detail, or title field.")
+        }
         let title = string(event, "title") ?? message.components(separatedBy: .newlines).first ?? "Application event"
         let levelText = (string(event, "level") ?? "info").lowercased()
         let level: EventLevel = levelText.contains("error") || levelText.contains("fatal")
@@ -526,6 +604,26 @@ func rows(from payload: Any) -> [[String: Any]] {
         if let rows = dictionary[key] as? [[String: Any]] { return rows }
     }
     return []
+}
+
+private func unsupportedDiagnostics(
+    payload: Any,
+    normalizedCount: Int,
+    source: LogSource,
+    reason: String
+) -> [EventDiagnostic] {
+    let rawRows = rows(from: payload)
+    let count = max(0, rawRows.count - normalizedCount)
+    guard count > 0 else { return [] }
+    return (0..<count).map { index in
+        EventDiagnostic(
+            source: source,
+            disposition: .unsupported,
+            title: "Unsupported \(source.title) record",
+            detail: "Record \(index + 1) of \(count) could not be normalized.",
+            reason: reason
+        )
+    }
 }
 
 func string(_ dictionary: [String: Any], _ key: String) -> String? {

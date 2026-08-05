@@ -5,6 +5,42 @@ struct PersistedWorkspace: Codable {
     var events: [LogEvent]
     var configuration: ProviderConfiguration
     var projectPath: String?
+    var lastSyncReport: SyncReport?
+    var ignoredFingerprints: [IgnoredFingerprint]
+    var deletedCases: [SignalCase]
+
+    init(
+        cases: [SignalCase],
+        events: [LogEvent],
+        configuration: ProviderConfiguration,
+        projectPath: String?,
+        lastSyncReport: SyncReport? = nil,
+        ignoredFingerprints: [IgnoredFingerprint] = [],
+        deletedCases: [SignalCase] = []
+    ) {
+        self.cases = cases
+        self.events = events
+        self.configuration = configuration
+        self.projectPath = projectPath
+        self.lastSyncReport = lastSyncReport
+        self.ignoredFingerprints = ignoredFingerprints
+        self.deletedCases = deletedCases
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case cases, events, configuration, projectPath, lastSyncReport, ignoredFingerprints, deletedCases
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        cases = try values.decodeIfPresent([SignalCase].self, forKey: .cases) ?? []
+        events = try values.decodeIfPresent([LogEvent].self, forKey: .events) ?? []
+        configuration = try values.decodeIfPresent(ProviderConfiguration.self, forKey: .configuration) ?? .empty
+        projectPath = try values.decodeIfPresent(String.self, forKey: .projectPath)
+        lastSyncReport = try values.decodeIfPresent(SyncReport.self, forKey: .lastSyncReport)
+        ignoredFingerprints = try values.decodeIfPresent([IgnoredFingerprint].self, forKey: .ignoredFingerprints) ?? []
+        deletedCases = try values.decodeIfPresent([SignalCase].self, forKey: .deletedCases) ?? []
+    }
 
     static let empty = PersistedWorkspace(cases: [], events: [], configuration: .empty, projectPath: nil)
 }
@@ -51,4 +87,3 @@ enum DateParser {
         Date(timeIntervalSince1970: number > 10_000_000_000 ? number / 1_000 : number)
     }
 }
-

@@ -226,7 +226,6 @@ struct SignalCase: Identifiable, Codable, Hashable {
     var findings: [CaseFinding]
     var codeReferences: [CodeReference]
     var reproduction: [String]
-    var isDemo: Bool = false
     var detectionNote: String = ""
 
     var sources: [LogSource] {
@@ -234,9 +233,96 @@ struct SignalCase: Identifiable, Codable, Hashable {
     }
 }
 
+enum EventDisposition: String, Codable, CaseIterable, Identifiable {
+    case failure
+    case routine
+    case unsupported
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .failure: "Failures"
+        case .routine: "Routine ignored"
+        case .unsupported: "Unsupported"
+        }
+    }
+}
+
+struct EventDiagnostic: Identifiable, Codable, Hashable {
+    let id: UUID
+    let timestamp: Date
+    let source: LogSource
+    let disposition: EventDisposition
+    let title: String
+    let detail: String
+    let reason: String
+    let fingerprint: String?
+
+    init(
+        id: UUID = UUID(),
+        timestamp: Date = Date(),
+        source: LogSource,
+        disposition: EventDisposition,
+        title: String,
+        detail: String,
+        reason: String,
+        fingerprint: String? = nil
+    ) {
+        self.id = id
+        self.timestamp = timestamp
+        self.source = source
+        self.disposition = disposition
+        self.title = title
+        self.detail = detail
+        self.reason = reason
+        self.fingerprint = fingerprint
+    }
+}
+
+struct SyncReport: Identifiable, Codable, Hashable {
+    let id: UUID
+    let createdAt: Date
+    let sources: [LogSource]
+    let diagnostics: [EventDiagnostic]
+    let sourceErrors: [String]
+
+    init(
+        id: UUID = UUID(),
+        createdAt: Date = Date(),
+        sources: [LogSource],
+        diagnostics: [EventDiagnostic],
+        sourceErrors: [String] = []
+    ) {
+        self.id = id
+        self.createdAt = createdAt
+        self.sources = sources
+        self.diagnostics = diagnostics
+        self.sourceErrors = sourceErrors
+    }
+
+    var checkedCount: Int { diagnostics.count }
+    var failureCount: Int { diagnostics.filter { $0.disposition == .failure }.count }
+    var routineCount: Int { diagnostics.filter { $0.disposition == .routine }.count }
+    var unsupportedCount: Int { diagnostics.filter { $0.disposition == .unsupported }.count }
+
+    var summary: String {
+        let checked = checkedCount == 1 ? "event" : "events"
+        let failures = failureCount == 1 ? "failure" : "failures"
+        let routine = routineCount == 1 ? "routine event" : "routine events"
+        return "\(checkedCount) \(checked) checked, \(failureCount) \(failures), \(routineCount) \(routine) ignored, \(unsupportedCount) unsupported"
+    }
+}
+
+struct IgnoredFingerprint: Identifiable, Codable, Hashable {
+    var id: String { fingerprint }
+    let fingerprint: String
+    let title: String
+    let ignoredAt: Date
+}
+
 enum IntegrationState: String, Codable {
     case connected
-    case demo
     case available
     case disconnected
     case waitingForEvent
@@ -253,14 +339,6 @@ struct Integration: Identifiable, Codable, Hashable {
     var errorMessage: String? = nil
 
     var id: String { source.id }
-}
-
-enum DataMode: String, CaseIterable, Codable, Identifiable {
-    case live
-    case demo
-
-    var id: String { rawValue }
-    var title: String { self == .live ? "Live" : "Demo" }
 }
 
 struct ProviderConfiguration: Codable, Hashable {
