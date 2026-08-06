@@ -8,28 +8,7 @@ struct SidebarView: View {
         VStack(alignment: .leading, spacing: 0) {
             brand.padding(.bottom, 28)
 
-            sectionLabel("PROJECT")
-            Button { model.chooseProject() } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "folder")
-                        .foregroundStyle(SignalTheme.lime)
-                        .frame(width: 16)
-                    Text(model.projectName).lineLimit(1)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 8, weight: .semibold))
-                        .foregroundStyle(SignalTheme.muted)
-                }
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(SignalTheme.text)
-                .padding(.horizontal, 10)
-                .frame(height: 36)
-                .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 10))
-                .contentShape(RoundedRectangle(cornerRadius: 10))
-            }
-            .buttonStyle(ModernPressableButtonStyle(scale: 0.985))
-
-            sectionLabel("VIEWS").padding(.top, 22)
+            sectionLabel("CASES")
             VStack(spacing: 3) {
                 ForEach(CaseFilter.allCases) { filter in
                     filterButton(filter)
@@ -40,19 +19,11 @@ struct SidebarView: View {
 
             sectionLabel("WORKSPACE")
             ModernSidebarActionRow(
-                title: "Connections",
-                subtitle: model.connectedCount == 1 ? "1 source connected" : "\(model.connectedCount) sources connected",
-                systemImage: "point.3.connected.trianglepath.dotted",
+                title: "Settings",
+                subtitle: settingsSubtitle,
+                systemImage: "gearshape",
                 tint: SignalTheme.blue
-            ) { model.isIntegrationsPresented = true }
-
-            ModernSidebarActionRow(
-                title: "Event diagnostics",
-                subtitle: diagnosticsSubtitle,
-                systemImage: "checklist.unchecked",
-                tint: SignalTheme.lime
-            ) { model.isDiagnosticsPresented = true }
-            .padding(.top, 7)
+            ) { model.openSettings() }
         }
         .padding(.top, 22)
         .padding(.horizontal, 18)
@@ -82,9 +53,9 @@ struct SidebarView: View {
             .padding(.bottom, 9)
     }
 
-    private var diagnosticsSubtitle: String {
-        guard let report = model.lastSyncReport else { return "No sync result yet" }
-        return "\(report.checkedCount) checked · \(report.failureCount) failures"
+    private var settingsSubtitle: String {
+        let sourceText = model.connectedCount == 1 ? "1 connection" : "\(model.connectedCount) connections"
+        return "\(sourceText) · \(model.projectName)"
     }
 
     private func filterButton(_ filter: CaseFilter) -> some View {
@@ -253,7 +224,7 @@ struct CaseListView: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 390)
             if model.cases.isEmpty {
-                Button("Connect sources") { model.isIntegrationsPresented = true }
+                Button("Open settings") { model.openSettings(.connections) }
                     .buttonStyle(ModernQuietButtonStyle())
             }
         }
@@ -378,7 +349,7 @@ private func modernFilterIcon(_ filter: CaseFilter) -> String {
     switch filter {
     case .all: "square.grid.2x2"
     case .new: "circle"
-    case .triaged: "scope"
+    case .triaged: "checkmark.circle"
     case .fixing: "hammer"
     case .verified: "checkmark.seal"
     }
@@ -387,9 +358,9 @@ private func modernFilterIcon(_ filter: CaseFilter) -> String {
 private func modernStatusColor(_ status: CaseStatus) -> Color {
     switch status {
     case .new: SignalTheme.orange
-    case .triaged: SignalTheme.lime
+    case .triaged: SignalTheme.yellow
     case .fixing: SignalTheme.blue
-    case .verified: SignalTheme.muted
+    case .verified: SignalTheme.lime
     }
 }
 
@@ -420,7 +391,6 @@ private func modernRelativeDate(_ date: Date) -> String {
 
 struct DiagnosticsSheet: View {
     @EnvironmentObject private var model: AppModel
-    @Environment(\.dismiss) private var dismiss
     @State private var selectedDisposition: EventDisposition?
     @State private var confirmClear = false
 
@@ -436,9 +406,7 @@ struct DiagnosticsSheet: View {
                         .font(.system(size: 25, weight: .bold, design: .rounded))
                 }
                 Spacer()
-                Button("Clear test data", role: .destructive) { confirmClear = true }
-                    .buttonStyle(ModernQuietButtonStyle())
-                Button("Done") { dismiss() }
+                Button("Clear local data", role: .destructive) { confirmClear = true }
                     .buttonStyle(ModernQuietButtonStyle())
             }
             .padding(26)
@@ -460,13 +428,13 @@ struct DiagnosticsSheet: View {
                 .padding(26)
             }
         }
-        .frame(width: 780, height: 660)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(SignalTheme.background)
-        .alert("Clear all test data?", isPresented: $confirmClear) {
+        .alert("Clear all local data?", isPresented: $confirmClear) {
             Button("Cancel", role: .cancel) {}
-            Button("Clear cases and events", role: .destructive) { model.clearTestData() }
+            Button("Clear cases and events", role: .destructive) { model.clearLocalData() }
         } message: {
-            Text("This clears local cases, events, muted error types, deleted cases, and sync diagnostics. Connections and the linked project stay configured.")
+            Text("This clears local cases, events, muted error types, deleted cases, and activity history. Connections and the linked project stay configured.")
         }
     }
 

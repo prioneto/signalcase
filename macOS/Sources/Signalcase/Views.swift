@@ -50,12 +50,8 @@ struct RootView: View {
             CaptureSheet()
                 .environmentObject(model)
         }
-        .sheet(isPresented: $model.isIntegrationsPresented) {
-            IntegrationsSheet()
-                .environmentObject(model)
-        }
-        .sheet(isPresented: $model.isDiagnosticsPresented) {
-            DiagnosticsSheet()
+        .sheet(isPresented: $model.isSettingsPresented) {
+            SettingsSheet()
                 .environmentObject(model)
         }
     }
@@ -139,7 +135,7 @@ private struct LegacySidebarView: View {
                 }
                 .buttonStyle(HoverButtonStyle())
 
-                Button { model.isIntegrationsPresented = true } label: {
+                Button { model.openSettings(.connections) } label: {
                     HStack(spacing: 11) {
                         ZStack {
                             RoundedRectangle(cornerRadius: 10)
@@ -223,7 +219,7 @@ private struct LegacySidebarView: View {
         switch filter {
         case .all: "square.stack.3d.up.fill"
         case .new: "circle"
-        case .triaged: "scope"
+        case .triaged: "checkmark.circle"
         case .fixing: "hammer.fill"
         case .verified: "checkmark.seal.fill"
         }
@@ -285,7 +281,7 @@ private struct LegacyCaseListView: View {
                         .foregroundStyle(SignalTheme.muted)
                         .multilineTextAlignment(.center)
                         .lineSpacing(3)
-                    Button("Connect sources") { model.isIntegrationsPresented = true }
+                    Button("Open settings") { model.openSettings(.connections) }
                         .buttonStyle(PrimaryButtonStyle())
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -422,6 +418,7 @@ private struct CaseDetailView: View {
                     .font(.system(size: 8, weight: .bold, design: .monospaced))
                     .foregroundStyle(color(for: item.status))
             }
+            .help(item.status.explanation)
 
             Spacer()
 
@@ -446,7 +443,7 @@ private struct CaseDetailView: View {
             if let next = item.status.next {
                 Button { model.advanceSelectedCase() } label: {
                     HStack(spacing: 8) {
-                        Text("Move to \(next.title)")
+                        Text(item.status.advanceActionTitle ?? next.title)
                         Image(systemName: "arrow.right")
                     }
                     .font(.system(size: 10, weight: .bold, design: .rounded))
@@ -797,7 +794,7 @@ private struct CaptureSheet: View {
                     ForEach([LogSource.supabase, .stripe, .render, .revenueCat, .sentry]) { source in
                         let isConnected = model.availableSyncSources.contains(source)
                         Button {
-                            guard isConnected else { model.isIntegrationsPresented = true; return }
+                            guard isConnected else { model.openSettings(.connections); return }
                             if selectedSources.contains(source) { selectedSources.remove(source) }
                             else { selectedSources.insert(source) }
                         } label: {
@@ -842,7 +839,7 @@ private struct CaptureSheet: View {
                         guard model.lastSyncReport != nil else { return }
                         model.isCapturePresented = false
                         try? await Task.sleep(for: .milliseconds(220))
-                        model.isDiagnosticsPresented = true
+                        model.openSettings(.activity)
                     }
                 } label: {
                     HStack(spacing: 9) {
@@ -869,9 +866,218 @@ private struct CaptureSheet: View {
     }
 }
 
-private struct IntegrationsSheet: View {
+private struct SettingsSheet: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 8) {
+                    Text("Settings")
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .lineLimit(1)
+                    Spacer()
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(SignalTheme.muted)
+                            .frame(width: 28, height: 28)
+                            .background(SignalTheme.surface, in: Circle())
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Close settings")
+                    .keyboardShortcut(.cancelAction)
+                }
+                .padding(.bottom, 24)
+
+                VStack(spacing: 5) {
+                    ForEach(SettingsSection.allCases) { section in
+                        settingsButton(section)
+                    }
+                }
+
+                Spacer()
+
+                Text("SIGNALCASE 0.1")
+                    .font(.system(size: 7.5, weight: .bold, design: .monospaced))
+                    .foregroundStyle(SignalTheme.muted)
+                    .padding(.horizontal, 10)
+            }
+            .padding(20)
+            .frame(width: 205)
+            .background(SignalTheme.sidebar)
+
+            Rectangle().fill(SignalTheme.border).frame(width: 1)
+
+            Group {
+                switch model.settingsSection {
+                case .general:
+                    GeneralSettingsView()
+                case .connections:
+                    ConnectionsSettingsView()
+                case .activity:
+                    DiagnosticsSheet()
+                }
+            }
+            .environmentObject(model)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(width: 940, height: 690)
+        .background(SignalTheme.background)
+    }
+
+    private func settingsButton(_ section: SettingsSection) -> some View {
+        let selected = model.settingsSection == section
+        return Button { model.settingsSection = section } label: {
+            HStack(spacing: 11) {
+                Image(systemName: section.systemImage)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(selected ? SignalTheme.lime : SignalTheme.muted)
+                    .frame(width: 18)
+                Text(section.title)
+                Spacer()
+            }
+            .font(.system(size: 11.5, weight: selected ? .semibold : .regular))
+            .foregroundStyle(selected ? SignalTheme.text : SignalTheme.muted)
+            .padding(.horizontal, 11)
+            .frame(height: 38)
+            .background(selected ? SignalTheme.surface : Color.clear, in: RoundedRectangle(cornerRadius: 10))
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(HoverButtonStyle())
+    }
+}
+
+private struct GeneralSettingsView: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("GENERAL").sectionLabel()
+                    Text("Workspace")
+                        .font(.system(size: 25, weight: .bold, design: .rounded))
+                    Text("Manage the project Signalcase searches and understand the case workflow.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(SignalTheme.muted)
+                }
+
+                settingsSection(title: "PROJECT", subtitle: "Used only to locate relevant source files.") {
+                    HStack(spacing: 13) {
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: 15))
+                            .foregroundStyle(SignalTheme.lime)
+                            .frame(width: 24)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(model.projectName)
+                                .font(.system(size: 12, weight: .semibold))
+                            Text(model.linkedProjectURL?.path ?? "No folder selected")
+                                .font(.system(size: 9))
+                                .foregroundStyle(SignalTheme.muted)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                        Spacer()
+                        Button(model.linkedProjectURL == nil ? "Choose folder" : "Change") { model.chooseProject() }
+                            .buttonStyle(QuietButtonStyle())
+                    }
+                }
+
+                settingsSection(title: "CONNECTIONS", subtitle: "Services Signalcase can read evidence from.") {
+                    HStack(spacing: 13) {
+                        Image(systemName: "point.3.connected.trianglepath.dotted")
+                            .font(.system(size: 15))
+                            .foregroundStyle(SignalTheme.blue)
+                            .frame(width: 24)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(model.connectedCount == 1 ? "1 source connected" : "\(model.connectedCount) sources connected")
+                                .font(.system(size: 12, weight: .semibold))
+                            Text("Supabase, Render, Stripe, RevenueCat, Sentry, and application logs")
+                                .font(.system(size: 9))
+                                .foregroundStyle(SignalTheme.muted)
+                        }
+                        Spacer()
+                        Button("Manage") { model.settingsSection = .connections }
+                            .buttonStyle(QuietButtonStyle())
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("CASE WORKFLOW").sectionLabel()
+                    Text("Each status answers a simple question. You can move a case forward from its case page.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(SignalTheme.muted)
+
+                    VStack(spacing: 0) {
+                        ForEach(Array(CaseStatus.allCases.enumerated()), id: \.element.id) { index, status in
+                            HStack(alignment: .top, spacing: 12) {
+                                Circle()
+                                    .fill(color(for: status))
+                                    .frame(width: 7, height: 7)
+                                    .padding(.top, 4)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(status.title)
+                                        .font(.system(size: 11.5, weight: .semibold))
+                                    Text(status.explanation)
+                                        .font(.system(size: 9.5))
+                                        .foregroundStyle(SignalTheme.muted)
+                                }
+                                Spacer()
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 12)
+
+                            if index < CaseStatus.allCases.count - 1 {
+                                Rectangle().fill(SignalTheme.border).frame(height: 1).padding(.leading, 33)
+                            }
+                        }
+                    }
+                    .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 14))
+                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(SignalTheme.border))
+                }
+
+                settingsSection(title: "ACTIVITY & DATA", subtitle: "Review ignored events, muted errors, deleted cases, or clear local history.") {
+                    HStack {
+                        Text(model.lastSyncReport?.summary ?? "No sync activity yet")
+                            .font(.system(size: 10))
+                            .foregroundStyle(SignalTheme.muted)
+                            .lineLimit(2)
+                        Spacer()
+                        Button("Open") { model.settingsSection = .activity }
+                            .buttonStyle(QuietButtonStyle())
+                    }
+                }
+            }
+            .padding(28)
+            .frame(maxWidth: 680, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(SignalTheme.background)
+    }
+
+    private func settingsSection<Content: View>(
+        title: String,
+        subtitle: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title).sectionLabel()
+            Text(subtitle)
+                .font(.system(size: 9.5))
+                .foregroundStyle(SignalTheme.muted)
+            content()
+                .padding(14)
+                .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(SignalTheme.border))
+        }
+    }
+}
+
+private struct ConnectionsSettingsView: View {
+    @EnvironmentObject private var model: AppModel
     @State private var selectedSource: LogSource = .supabase
     @State private var token = ""
     @State private var authorizationHeader = ""
@@ -879,22 +1085,10 @@ private struct IntegrationsSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            HStack {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 13).fill(SignalTheme.blue.opacity(0.13)).frame(width: 42, height: 42)
-                    Image(systemName: "point.3.connected.trianglepath.dotted")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(SignalTheme.blue)
-                }
-                Spacer()
-                Button { dismiss() } label: { Image(systemName: "xmark") }
-                    .buttonStyle(CircleButtonStyle())
-            }
-
             VStack(alignment: .leading, spacing: 7) {
-                Text("EVIDENCE SOURCES").sectionLabel()
-                Text("Connect the places bugs leave traces")
-                    .font(.system(size: 27, weight: .bold, design: .rounded))
+                Text("CONNECTIONS").sectionLabel()
+                Text("Evidence sources")
+                    .font(.system(size: 25, weight: .bold, design: .rounded))
                 Text("Choose a source, enter its credentials, then test it against real recent activity. Signalcase makes read requests only, and secrets are stored in your Mac Keychain.")
                     .font(.system(size: 11))
                     .foregroundStyle(SignalTheme.muted)
@@ -987,13 +1181,10 @@ private struct IntegrationsSheet: View {
                 Text(model.receiverStatus)
                     .font(.system(size: 8, design: .monospaced))
                     .foregroundStyle(SignalTheme.muted)
-                Spacer()
-                Button("Done") { dismiss() }
-                    .buttonStyle(PrimaryButtonStyle())
             }
         }
-        .padding(28)
-        .frame(width: 760, height: 650)
+        .padding(26)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(SignalTheme.background)
         .onChange(of: selectedSource) {
             token = ""
@@ -1253,8 +1444,8 @@ private func sourceColor(_ source: LogSource) -> Color {
     case .supabase: SignalTheme.lime
     case .stripe: SignalTheme.purple
     case .render: SignalTheme.blue
-    case .revenueCat: SignalTheme.orange
-    case .sentry: SignalTheme.yellow
+    case .revenueCat: SignalTheme.yellow
+    case .sentry: SignalTheme.orange
     case .application: SignalTheme.text
     }
 }

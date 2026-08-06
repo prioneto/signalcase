@@ -14,6 +14,10 @@ struct SignalcaseApp: App {
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unifiedCompact)
         .commands {
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") { model.openSettings() }
+                    .keyboardShortcut(",", modifiers: .command)
+            }
             CommandGroup(replacing: .newItem) {
                 Button("Sync recent logs") { model.isCapturePresented = true }
                     .keyboardShortcut("n", modifiers: .command)

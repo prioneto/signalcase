@@ -9,8 +9,8 @@ final class AppModel: ObservableObject {
     @Published var filter: CaseFilter = .all
     @Published var searchText = ""
     @Published var isCapturePresented = false
-    @Published var isIntegrationsPresented = false
-    @Published var isDiagnosticsPresented = false
+    @Published var isSettingsPresented = false
+    @Published var settingsSection: SettingsSection = .general
     @Published var isCapturing = false
     @Published var toastMessage: String?
     @Published var linkedProjectURL: URL?
@@ -121,6 +121,11 @@ final class AppModel: ObservableObject {
         selectedCaseID = nil
     }
 
+    func openSettings(_ section: SettingsSection = .general) {
+        settingsSection = section
+        isSettingsPresented = true
+    }
+
     func advanceSelectedCase() {
         guard let selectedCaseID,
               let index = cases.firstIndex(where: { $0.id == selectedCaseID }),
@@ -135,7 +140,7 @@ final class AppModel: ObservableObject {
         let requested = sources.intersection(availableSyncSources)
         guard !requested.isEmpty else {
             isCapturePresented = false
-            isIntegrationsPresented = true
+            openSettings(.connections)
             showToast("Connect at least one source first")
             return
         }
@@ -268,7 +273,7 @@ final class AppModel: ObservableObject {
         showToast("Error type unmuted")
     }
 
-    func clearTestData() {
+    func clearLocalData() {
         cases = []
         rawEvents = []
         deletedCases = []
@@ -277,7 +282,7 @@ final class AppModel: ObservableObject {
         selectedCaseID = nil
         filter = .all
         persist()
-        showToast("Cleared local cases, events, and diagnostics")
+        showToast("Cleared local cases, events, and activity history")
     }
 
     func chooseProject() {

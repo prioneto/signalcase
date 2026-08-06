@@ -11,9 +11,27 @@ enum CaseStatus: String, CaseIterable, Codable, Identifiable {
     var title: String {
         switch self {
         case .new: "New"
-        case .triaged: "Triaged"
+        case .triaged: "Reviewed"
         case .fixing: "Fixing"
         case .verified: "Verified"
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .new: "Detected and waiting for someone to review the evidence."
+        case .triaged: "Confirmed as a real problem and ready for a developer."
+        case .fixing: "A developer is actively working on the problem."
+        case .verified: "The fix was checked and the problem no longer reproduces."
+        }
+    }
+
+    var advanceActionTitle: String? {
+        switch self {
+        case .new: "Mark as reviewed"
+        case .triaged: "Start fixing"
+        case .fixing: "Mark as verified"
+        case .verified: nil
         }
     }
 
@@ -48,13 +66,37 @@ enum CaseFilter: String, CaseIterable, Identifiable {
         switch self {
         case .all: "All cases"
         case .new: "New"
-        case .triaged: "Triaged"
+        case .triaged: "Reviewed"
         case .fixing: "Fixing"
         case .verified: "Verified"
         }
     }
 
     var status: CaseStatus? { CaseStatus(rawValue: rawValue) }
+}
+
+enum SettingsSection: String, CaseIterable, Identifiable {
+    case general
+    case connections
+    case activity
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .general: "General"
+        case .connections: "Connections"
+        case .activity: "Activity & data"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .general: "gearshape"
+        case .connections: "point.3.connected.trianglepath.dotted"
+        case .activity: "checklist.unchecked"
+        }
+    }
 }
 
 enum LogSource: String, CaseIterable, Codable, Identifiable, Hashable {
