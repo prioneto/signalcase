@@ -6,7 +6,7 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            brand.padding(.bottom, 28)
+            brand.padding(.bottom, 24)
 
             sectionLabel("CASES")
             VStack(spacing: 3) {
@@ -25,32 +25,33 @@ struct SidebarView: View {
                 tint: SignalTheme.blue
             ) { model.openSettings() }
         }
-        .padding(.top, 22)
-        .padding(.horizontal, 18)
-        .padding(.bottom, 18)
+        .padding(.top, 18)
+        .padding(.horizontal, 14)
+        .padding(.bottom, 14)
         .background(SignalTheme.sidebar)
     }
 
     private var brand: some View {
         HStack(spacing: 10) {
             ZStack {
-                Circle().fill(SignalTheme.lime).frame(width: 31, height: 31)
+                RoundedRectangle(cornerRadius: 8).fill(SignalTheme.lime).frame(width: 29, height: 29)
                 Image(systemName: "waveform.path.ecg.rectangle.fill")
                     .font(.system(size: 14, weight: .black))
                     .foregroundStyle(.black)
             }
             Text("SIGNALCASE")
-                .font(.system(size: 14, weight: .black, design: .monospaced))
+                .font(.system(size: 12.5, weight: .black, design: .monospaced))
                 .tracking(1.2)
         }
     }
 
     private func sectionLabel(_ value: String) -> some View {
         Text(value)
-            .font(.system(size: 8, weight: .black, design: .monospaced))
+            .font(.system(size: 7.5, weight: .bold, design: .monospaced))
             .tracking(1.35)
             .foregroundStyle(SignalTheme.muted)
-            .padding(.bottom, 9)
+            .padding(.horizontal, 8)
+            .padding(.bottom, 7)
     }
 
     private var settingsSubtitle: String {
@@ -74,14 +75,15 @@ struct SidebarView: View {
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
                     .foregroundStyle(selected ? SignalTheme.lime : SignalTheme.muted)
             }
-            .font(.system(size: 12, weight: selected ? .semibold : .regular))
+            .font(.system(size: 11.5, weight: selected ? .semibold : .regular))
             .foregroundStyle(selected ? SignalTheme.text : SignalTheme.muted)
             .padding(.horizontal, 10)
-            .frame(height: 35)
-            .background(selected ? SignalTheme.surface : Color.clear, in: RoundedRectangle(cornerRadius: 10))
-            .contentShape(RoundedRectangle(cornerRadius: 10))
+            .frame(height: 34)
+            .background(selected ? SignalTheme.raised : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(ModernPressableButtonStyle(scale: 0.985))
+        .focusEffectDisabled()
     }
 }
 
@@ -109,13 +111,12 @@ private struct ModernSidebarActionRow: View {
                     .foregroundStyle(SignalTheme.muted)
             }
             .padding(.horizontal, 11)
-            .frame(height: 44)
-            .frame(maxWidth: .infinity)
-            .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 11))
-            .overlay(RoundedRectangle(cornerRadius: 11).stroke(SignalTheme.border))
-            .contentShape(RoundedRectangle(cornerRadius: 11))
+            .frame(height: 42)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(ModernPressableButtonStyle(scale: 0.985))
+        .focusEffectDisabled()
     }
 }
 
@@ -124,7 +125,7 @@ struct CaseListView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 18) {
                 header
 
                 if !model.cases.isEmpty {
@@ -134,48 +135,59 @@ struct CaseListView: View {
                 if model.filteredCases.isEmpty {
                     emptyState
                 } else {
-                    LazyVStack(spacing: 9) {
+                    LazyVStack(spacing: 0) {
                         ForEach(model.filteredCases) { item in
                             Button { model.select(item) } label: {
                                 CaseRow(item: item)
                             }
                             .buttonStyle(ModernPressableButtonStyle(scale: 0.995))
+                            .focusEffectDisabled()
                         }
                     }
+                    .background(SignalTheme.surface.opacity(0.62), in: RoundedRectangle(cornerRadius: 11))
+                    .overlay(RoundedRectangle(cornerRadius: 11).stroke(SignalTheme.border))
+                    .clipShape(RoundedRectangle(cornerRadius: 11))
                 }
             }
-            .frame(maxWidth: 900, alignment: .leading)
-            .padding(.horizontal, 44)
-            .padding(.vertical, 36)
+            .frame(maxWidth: 940, alignment: .leading)
+            .padding(.horizontal, 36)
+            .padding(.vertical, 28)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(SignalTheme.background)
     }
 
     private var header: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(model.filter.title)
-                    .font(.system(size: 32, weight: .bold, design: .rounded))
-                    .tracking(-0.5)
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .tracking(-0.35)
                 Text(summary)
                     .font(.system(size: 11))
                     .foregroundStyle(SignalTheme.muted)
             }
             Spacer()
-            Button { model.importLogs() } label: {
-                Label("Import logs", systemImage: "square.and.arrow.down")
+            Menu {
+                Button("Import log file", systemImage: "square.and.arrow.down") { model.importLogs() }
+                Button("Activity & data", systemImage: "list.bullet.rectangle") { model.openSettings(.activity) }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .frame(width: 34, height: 34)
+                    .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 9))
             }
-            .buttonStyle(ModernQuietButtonStyle())
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .frame(width: 34, height: 34, alignment: .center)
 
             Button { model.isCapturePresented = true } label: {
                 Label("Sync logs", systemImage: "arrow.triangle.2.circlepath")
-                    .font(.system(size: 10.5, weight: .bold))
+                    .font(.system(size: 10.5, weight: .semibold))
                     .foregroundStyle(.black)
                     .padding(.horizontal, 16)
-                    .frame(height: 38)
-                    .background(SignalTheme.lime, in: RoundedRectangle(cornerRadius: 11))
-                    .contentShape(RoundedRectangle(cornerRadius: 11))
+                    .frame(height: 34)
+                    .background(SignalTheme.lime, in: RoundedRectangle(cornerRadius: 9))
+                    .contentShape(RoundedRectangle(cornerRadius: 9))
             }
             .buttonStyle(ModernPressableButtonStyle())
             .keyboardShortcut("n", modifiers: .command)
@@ -183,27 +195,16 @@ struct CaseListView: View {
     }
 
     private var searchAndFilter: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass").foregroundStyle(SignalTheme.muted)
-                TextField("Search cases, errors, or files", text: $model.searchText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12))
-            }
-            .padding(.horizontal, 12)
-            .frame(height: 38)
-            .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 11))
-            .overlay(RoundedRectangle(cornerRadius: 11).stroke(SignalTheme.border))
-
-            Picker("Status", selection: $model.filter) {
-                ForEach(CaseFilter.allCases) { filter in
-                    Text(filter.title).tag(filter)
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.menu)
-            .frame(width: 150)
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundStyle(SignalTheme.muted)
+            TextField("Search cases, errors, or files", text: $model.searchText)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
         }
+        .padding(.horizontal, 12)
+        .frame(height: 36)
+        .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 9))
+        .overlay(RoundedRectangle(cornerRadius: 9).stroke(SignalTheme.border))
     }
 
     private var emptyState: some View {
@@ -234,7 +235,7 @@ struct CaseListView: View {
 
     private var summary: String {
         let count = model.filteredCases.count
-        return "\(count) \(count == 1 ? "case" : "cases") · Live evidence"
+        return "\(count) \(count == 1 ? "case" : "cases")"
     }
 }
 
@@ -242,48 +243,60 @@ struct CaseRow: View {
     let item: SignalCase
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 7) {
-                Circle().fill(modernStatusColor(item.status)).frame(width: 6, height: 6)
-                Text(item.status.title.uppercased())
-                Text("·")
-                Text(item.reference)
-                Spacer()
-                Text(modernRelativeDate(item.lastSeen))
-            }
-            .font(.system(size: 8, weight: .bold, design: .monospaced))
-            .foregroundStyle(SignalTheme.muted)
+        HStack(spacing: 12) {
+            Circle()
+                .fill(modernStatusColor(item.status))
+                .frame(width: 7, height: 7)
 
-            Text(item.title)
-                .font(.system(size: 15, weight: .semibold, design: .rounded))
-                .foregroundStyle(SignalTheme.text)
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
-
-            Text(item.summary.replacingOccurrences(of: "\n", with: " "))
-                .font(.system(size: 10))
-                .foregroundStyle(SignalTheme.muted)
-                .lineLimit(1)
-
-            HStack(spacing: 12) {
-                Label("\(item.occurrenceCount)", systemImage: "repeat")
-                if item.affectedUsers > 0 {
-                    Label("\(item.affectedUsers)", systemImage: "person.2")
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 7) {
+                    Text(item.title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(SignalTheme.text)
+                        .lineLimit(1)
+                    if item.severity != .normal {
+                        Text(item.severity.title.uppercased())
+                            .font(.system(size: 7, weight: .bold, design: .monospaced))
+                            .foregroundStyle(modernSeverityColor(item.severity))
+                    }
                 }
-                Text(item.severity.title)
-                    .foregroundStyle(modernSeverityColor(item.severity))
-                Spacer()
-                ModernSourceStack(sources: item.sources)
+
+                HStack(spacing: 7) {
+                    Text(item.reference)
+                    Text("·")
+                    Text(item.status.title)
+                    Text("·")
+                    Text("\(item.occurrenceCount)×")
+                    if item.affectedUsers > 0 {
+                        Text("·")
+                        Text("\(item.affectedUsers) users")
+                    }
+                }
+                .font(.system(size: 8.5, weight: .medium, design: .monospaced))
+                .foregroundStyle(SignalTheme.muted)
             }
-            .font(.system(size: 8, weight: .semibold, design: .monospaced))
-            .foregroundStyle(SignalTheme.muted)
+
+            Spacer(minLength: 16)
+            ModernSourceStack(sources: item.sources)
+            Text(modernRelativeDate(item.lastSeen))
+                .font(.system(size: 8.5, design: .monospaced))
+                .foregroundStyle(SignalTheme.muted)
+                .frame(width: 62, alignment: .trailing)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(SignalTheme.muted.opacity(0.7))
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .padding(.horizontal, 14)
+        .frame(minHeight: 68)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 13))
-        .overlay(RoundedRectangle(cornerRadius: 13).stroke(SignalTheme.border))
-        .contentShape(RoundedRectangle(cornerRadius: 13))
+        .background(Color.clear)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(SignalTheme.border)
+                .frame(height: 1)
+                .padding(.leading, 16)
+        }
+        .contentShape(Rectangle())
     }
 }
 
@@ -319,12 +332,12 @@ private struct ModernInteractiveButton: View {
 
     var body: some View {
         configuration.label
-            .brightness(hovering ? 0.035 : 0)
-            .shadow(color: .black.opacity(hovering ? 0.16 : 0), radius: 8, y: 3)
-            .scaleEffect(configuration.isPressed ? scale : hovering ? 1.006 : 1)
-            .opacity(configuration.isPressed ? 0.80 : 1)
+            .brightness(hovering ? 0.025 : 0)
+            .scaleEffect(configuration.isPressed ? scale : 1)
+            .opacity(configuration.isPressed ? 0.76 : 1)
             .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
             .animation(.easeOut(duration: 0.16), value: hovering)
+            .focusEffectDisabled()
             .onHover { value in
                 hovering = value
                 value ? NSCursor.pointingHand.set() : NSCursor.arrow.set()
@@ -342,6 +355,7 @@ private struct ModernQuietButtonStyle: ButtonStyle {
             .background(configuration.isPressed ? SignalTheme.raisedHover : SignalTheme.surface, in: RoundedRectangle(cornerRadius: 11))
             .overlay(RoundedRectangle(cornerRadius: 11).stroke(SignalTheme.border))
             .contentShape(RoundedRectangle(cornerRadius: 11))
+            .focusEffectDisabled()
     }
 }
 
@@ -398,18 +412,21 @@ struct DiagnosticsSheet: View {
         VStack(spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("EVENT DIAGNOSTICS")
+                    Text("ACTIVITY & DATA")
                         .font(.system(size: 8, weight: .black, design: .monospaced))
                         .tracking(1.3)
                         .foregroundStyle(SignalTheme.muted)
-                    Text("What Signalcase checked")
-                        .font(.system(size: 25, weight: .bold, design: .rounded))
+                    Text("Sync activity")
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                    Text("See what became a case and what was ignored.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(SignalTheme.muted)
                 }
                 Spacer()
                 Button("Clear local data", role: .destructive) { confirmClear = true }
                     .buttonStyle(ModernQuietButtonStyle())
             }
-            .padding(26)
+            .padding(24)
 
             Rectangle().fill(SignalTheme.border).frame(height: 1)
 
@@ -425,7 +442,7 @@ struct DiagnosticsSheet: View {
                     if !model.ignoredFingerprints.isEmpty { ignoredSection }
                     if !model.deletedCases.isEmpty { deletedSection }
                 }
-                .padding(26)
+                .padding(24)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -439,15 +456,17 @@ struct DiagnosticsSheet: View {
     }
 
     private func reportSummary(_ report: SyncReport) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             Text(report.summary)
-                .font(.system(size: 16, weight: .semibold, design: .rounded))
-            HStack(spacing: 8) {
+                .font(.system(size: 13, weight: .semibold))
+            HStack(spacing: 0) {
                 diagnosticMetric("CHECKED", report.checkedCount, SignalTheme.text)
                 diagnosticMetric("FAILURES", report.failureCount, SignalTheme.orange)
                 diagnosticMetric("ROUTINE", report.routineCount, SignalTheme.muted)
                 diagnosticMetric("UNSUPPORTED", report.unsupportedCount, SignalTheme.yellow)
             }
+            .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(SignalTheme.border))
             ForEach(report.sourceErrors, id: \.self) { error in
                 Label(error, systemImage: "exclamationmark.triangle.fill")
                     .font(.system(size: 10))
@@ -465,10 +484,9 @@ struct DiagnosticsSheet: View {
                 .font(.system(size: 20, weight: .bold, design: .rounded))
                 .foregroundStyle(color)
         }
-        .padding(13)
+        .padding(.horizontal, 13)
+        .padding(.vertical, 11)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(SignalTheme.border))
     }
 
     private func diagnostics(_ report: SyncReport) -> some View {
@@ -489,8 +507,8 @@ struct DiagnosticsSheet: View {
                 }
             }
 
-            LazyVStack(spacing: 7) {
-                ForEach(filteredDiagnostics(report)) { diagnostic in
+            LazyVStack(spacing: 0) {
+                ForEach(Array(filteredDiagnostics(report).enumerated()), id: \.element.id) { index, diagnostic in
                     VStack(alignment: .leading, spacing: 7) {
                         HStack(spacing: 8) {
                             Image(systemName: diagnostic.source.systemImage)
@@ -511,12 +529,17 @@ struct DiagnosticsSheet: View {
                             .foregroundStyle(SignalTheme.muted)
                             .lineLimit(2)
                     }
-                    .padding(13)
+                    .padding(.horizontal, 13)
+                    .padding(.vertical, 11)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 12))
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(SignalTheme.border))
+                    if index < filteredDiagnostics(report).count - 1 {
+                        Rectangle().fill(SignalTheme.border).frame(height: 1).padding(.leading, 34)
+                    }
                 }
             }
+            .background(SignalTheme.surface.opacity(0.62), in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(SignalTheme.border))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
         }
     }
 
@@ -541,51 +564,55 @@ struct DiagnosticsSheet: View {
     private var ignoredSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             diagnosticsLabel("MUTED ERROR TYPES")
-            Text("Signalcase will not create cases for these error patterns, even when they happen again.")
-                .font(.system(size: 9.5))
-                .foregroundStyle(SignalTheme.muted)
-            ForEach(model.ignoredFingerprints) { ignored in
-                HStack(spacing: 12) {
-                    Image(systemName: "speaker.slash").foregroundStyle(SignalTheme.yellow)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(ignored.title).font(.system(size: 11, weight: .semibold))
-                        Text(ignored.fingerprint)
-                            .font(.system(size: 8, design: .monospaced))
-                            .foregroundStyle(SignalTheme.muted)
-                            .lineLimit(1)
+            VStack(spacing: 0) {
+                ForEach(Array(model.ignoredFingerprints.enumerated()), id: \.element.id) { index, ignored in
+                    HStack(spacing: 12) {
+                        Image(systemName: "speaker.slash").foregroundStyle(SignalTheme.yellow)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(ignored.title).font(.system(size: 11, weight: .semibold))
+                            Text(ignored.fingerprint)
+                                .font(.system(size: 8, design: .monospaced))
+                                .foregroundStyle(SignalTheme.muted)
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        Button("Unmute") { model.restoreFingerprint(ignored.fingerprint) }
+                            .buttonStyle(ModernQuietButtonStyle())
                     }
-                    Spacer()
-                    Button("Unmute") { model.restoreFingerprint(ignored.fingerprint) }
-                        .buttonStyle(ModernQuietButtonStyle())
+                    .padding(12)
+                    if index < model.ignoredFingerprints.count - 1 {
+                        Rectangle().fill(SignalTheme.border).frame(height: 1).padding(.leading, 36)
+                    }
                 }
-                .padding(12)
-                .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 12))
             }
+            .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 10))
         }
     }
 
     private var deletedSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             diagnosticsLabel("DELETED CASES")
-            Text("These exact cases are hidden. A new occurrence of the same error can still create a new case.")
-                .font(.system(size: 9.5))
-                .foregroundStyle(SignalTheme.muted)
-            ForEach(model.deletedCases) { item in
-                HStack(spacing: 12) {
-                    Image(systemName: "trash").foregroundStyle(SignalTheme.muted)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("\(item.reference) · \(item.title)").font(.system(size: 11, weight: .semibold))
-                        Text("\(item.occurrenceCount) occurrences")
-                            .font(.system(size: 8, design: .monospaced))
-                            .foregroundStyle(SignalTheme.muted)
+            VStack(spacing: 0) {
+                ForEach(Array(model.deletedCases.enumerated()), id: \.element.id) { index, item in
+                    HStack(spacing: 12) {
+                        Image(systemName: "trash").foregroundStyle(SignalTheme.muted)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("\(item.reference) · \(item.title)").font(.system(size: 11, weight: .semibold))
+                            Text("\(item.occurrenceCount) occurrences")
+                                .font(.system(size: 8, design: .monospaced))
+                                .foregroundStyle(SignalTheme.muted)
+                        }
+                        Spacer()
+                        Button("Restore") { model.restoreDeletedCase(item.id) }
+                            .buttonStyle(ModernQuietButtonStyle())
                     }
-                    Spacer()
-                    Button("Restore") { model.restoreDeletedCase(item.id) }
-                        .buttonStyle(ModernQuietButtonStyle())
+                    .padding(12)
+                    if index < model.deletedCases.count - 1 {
+                        Rectangle().fill(SignalTheme.border).frame(height: 1).padding(.leading, 36)
+                    }
                 }
-                .padding(12)
-                .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 12))
             }
+            .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 10))
         }
     }
 

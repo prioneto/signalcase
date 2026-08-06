@@ -8,6 +8,7 @@ struct PersistedWorkspace: Codable {
     var lastSyncReport: SyncReport?
     var ignoredFingerprints: [IgnoredFingerprint]
     var deletedCases: [SignalCase]
+    var hasCompletedOnboarding: Bool
 
     init(
         cases: [SignalCase],
@@ -16,7 +17,8 @@ struct PersistedWorkspace: Codable {
         projectPath: String?,
         lastSyncReport: SyncReport? = nil,
         ignoredFingerprints: [IgnoredFingerprint] = [],
-        deletedCases: [SignalCase] = []
+        deletedCases: [SignalCase] = [],
+        hasCompletedOnboarding: Bool = false
     ) {
         self.cases = cases
         self.events = events
@@ -25,10 +27,11 @@ struct PersistedWorkspace: Codable {
         self.lastSyncReport = lastSyncReport
         self.ignoredFingerprints = ignoredFingerprints
         self.deletedCases = deletedCases
+        self.hasCompletedOnboarding = hasCompletedOnboarding
     }
 
     private enum CodingKeys: String, CodingKey {
-        case cases, events, configuration, projectPath, lastSyncReport, ignoredFingerprints, deletedCases
+        case cases, events, configuration, projectPath, lastSyncReport, ignoredFingerprints, deletedCases, hasCompletedOnboarding
     }
 
     init(from decoder: Decoder) throws {
@@ -40,6 +43,7 @@ struct PersistedWorkspace: Codable {
         lastSyncReport = try values.decodeIfPresent(SyncReport.self, forKey: .lastSyncReport)
         ignoredFingerprints = try values.decodeIfPresent([IgnoredFingerprint].self, forKey: .ignoredFingerprints) ?? []
         deletedCases = try values.decodeIfPresent([SignalCase].self, forKey: .deletedCases) ?? []
+        hasCompletedOnboarding = try values.decodeIfPresent(Bool.self, forKey: .hasCompletedOnboarding) ?? false
     }
 
     static let empty = PersistedWorkspace(cases: [], events: [], configuration: .empty, projectPath: nil)

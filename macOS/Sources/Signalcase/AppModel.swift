@@ -10,6 +10,7 @@ final class AppModel: ObservableObject {
     @Published var searchText = ""
     @Published var isCapturePresented = false
     @Published var isSettingsPresented = false
+    @Published var isOnboardingPresented: Bool
     @Published var settingsSection: SettingsSection = .general
     @Published var isCapturing = false
     @Published var toastMessage: String?
@@ -54,6 +55,7 @@ final class AppModel: ObservableObject {
         lastSyncReport = workspace.lastSyncReport
         ignoredFingerprints = workspace.ignoredFingerprints
         deletedCases = workspace.deletedCases
+        isOnboardingPresented = !workspace.hasCompletedOnboarding
         integrations = [
             .init(source: .supabase, state: Self.connectionState(.supabase, configuration: workspace.configuration, events: migratedEvents), detail: "Auth, database and function logs"),
             .init(source: .stripe, state: Self.connectionState(.stripe, configuration: workspace.configuration, events: migratedEvents), detail: "Events and failed webhook deliveries"),
@@ -71,7 +73,8 @@ final class AppModel: ObservableObject {
                 projectPath: workspace.projectPath,
                 lastSyncReport: workspace.lastSyncReport,
                 ignoredFingerprints: workspace.ignoredFingerprints,
-                deletedCases: workspace.deletedCases
+                deletedCases: workspace.deletedCases,
+                hasCompletedOnboarding: workspace.hasCompletedOnboarding
             ))
         }
         startReceiver()
@@ -124,6 +127,18 @@ final class AppModel: ObservableObject {
     func openSettings(_ section: SettingsSection = .general) {
         settingsSection = section
         isSettingsPresented = true
+    }
+
+    func completeOnboarding(openConnections: Bool = false) {
+        isOnboardingPresented = false
+        persist()
+        if openConnections { openSettings(.connections) }
+    }
+
+    func restartOnboarding() {
+        isSettingsPresented = false
+        isOnboardingPresented = true
+        persist()
     }
 
     func advanceSelectedCase() {
@@ -458,7 +473,8 @@ final class AppModel: ObservableObject {
             projectPath: linkedProjectURL?.path,
             lastSyncReport: lastSyncReport,
             ignoredFingerprints: ignoredFingerprints,
-            deletedCases: deletedCases
+            deletedCases: deletedCases,
+            hasCompletedOnboarding: !isOnboardingPresented
         )
         do { try WorkspaceStore.save(workspace) }
         catch { showToast("Could not save workspace: \(error.localizedDescription)") }

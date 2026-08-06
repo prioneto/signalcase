@@ -457,6 +457,7 @@ final class SignalcaseTests: XCTestCase {
         json.removeValue(forKey: "lastSyncReport")
         json.removeValue(forKey: "ignoredFingerprints")
         json.removeValue(forKey: "deletedCases")
+        json.removeValue(forKey: "hasCompletedOnboarding")
         let legacyData = try JSONSerialization.data(withJSONObject: json)
 
         let decoded = try JSONDecoder().decode(PersistedWorkspace.self, from: legacyData)
@@ -464,5 +465,6 @@ final class SignalcaseTests: XCTestCase {
         XCTAssertNil(decoded.lastSyncReport)
         XCTAssertTrue(decoded.ignoredFingerprints.isEmpty)
         XCTAssertTrue(decoded.deletedCases.isEmpty)
+        XCTAssertFalse(decoded.hasCompletedOnboarding)
     }
 }

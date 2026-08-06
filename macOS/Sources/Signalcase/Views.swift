@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 enum SignalTheme {
@@ -20,9 +21,20 @@ struct RootView: View {
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
+        Group {
+            if model.isOnboardingPresented {
+                OnboardingView()
+                    .environmentObject(model)
+            } else {
+                applicationShell
+            }
+        }
+    }
+
+    private var applicationShell: some View {
         HStack(spacing: 0) {
             SidebarView()
-                .frame(width: 232)
+                .frame(width: 216)
 
             Rectangle().fill(SignalTheme.border).frame(width: 1)
 
@@ -378,9 +390,9 @@ private struct CaseDetailView: View {
                 timelineSection
                 lowerSection
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 34)
-            .padding(.bottom, 44)
+            .frame(maxWidth: 900, alignment: .leading)
+            .padding(.horizontal, 36)
+            .padding(.bottom, 40)
         }
         .background(SignalTheme.background)
         .alert("Delete only this case?", isPresented: $confirmDelete) {
@@ -404,8 +416,6 @@ private struct CaseDetailView: View {
                     .compactAction()
             }
             .buttonStyle(HoverButtonStyle())
-
-            Rectangle().fill(SignalTheme.border).frame(width: 1, height: 22)
 
             Text(item.reference)
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
@@ -446,21 +456,23 @@ private struct CaseDetailView: View {
                         Text(item.status.advanceActionTitle ?? next.title)
                         Image(systemName: "arrow.right")
                     }
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.black)
                     .padding(.horizontal, 15)
-                    .frame(height: 38)
-                    .background(SignalTheme.lime, in: RoundedRectangle(cornerRadius: 12))
-                    .contentShape(Rectangle())
+                    .frame(height: 34)
+                    .background(SignalTheme.lime, in: RoundedRectangle(cornerRadius: 9))
+                    .contentShape(RoundedRectangle(cornerRadius: 9))
                 }
                 .buttonStyle(ScaleButtonStyle())
             }
         }
-        .padding(.top, 22)
+        .padding(.top, 18)
+        .padding(.bottom, 14)
+        .overlay(alignment: .bottom) { Rectangle().fill(SignalTheme.border).frame(height: 1) }
     }
 
     private var titleBlock: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Text(item.severity.title)
                     .font(.system(size: 8, weight: .black, design: .monospaced))
@@ -471,56 +483,49 @@ private struct CaseDetailView: View {
             }
 
             Text(item.title)
-                .font(.system(size: 30, weight: .bold, design: .rounded))
-                .tracking(-0.6)
+                .font(.system(size: 26, weight: .bold, design: .rounded))
+                .tracking(-0.4)
                 .lineLimit(3)
 
             Text(item.summary)
-                .font(.system(size: 13))
+                .font(.system(size: 11.5))
                 .foregroundStyle(SignalTheme.muted)
                 .lineSpacing(4)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.top, 34)
-        .padding(.bottom, 26)
+        .padding(.top, 26)
+        .padding(.bottom, 22)
     }
 
     private var impactStrip: some View {
-        HStack(spacing: 0) {
-            metric("OCCURRENCES", value: "\(item.occurrenceCount)")
-            metricDivider
-            metric("AFFECTED USERS", value: "\(item.affectedUsers)")
-            metricDivider
-            metric("FIRST SEEN", value: relativeDate(item.firstSeen))
-            metricDivider
-            VStack(alignment: .leading, spacing: 7) {
-                Text("SOURCES").sectionLabel()
-                SourceStack(sources: item.sources, size: 27)
+        HStack(spacing: 20) {
+            metric("Occurrences", value: "\(item.occurrenceCount)", icon: "repeat")
+            metric("Users", value: "\(item.affectedUsers)", icon: "person.2")
+            metric("First seen", value: relativeDate(item.firstSeen), icon: "clock")
+            HStack(spacing: 8) {
+                Image(systemName: "square.stack.3d.up")
+                    .foregroundStyle(SignalTheme.muted)
+                SourceStack(sources: item.sources, size: 23)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 18)
+            Spacer()
         }
-        .padding(.vertical, 17)
-        .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 17))
-        .overlay { RoundedRectangle(cornerRadius: 17).stroke(SignalTheme.border) }
+        .padding(.vertical, 13)
+        .overlay(alignment: .top) { Rectangle().fill(SignalTheme.border).frame(height: 1) }
+        .overlay(alignment: .bottom) { Rectangle().fill(SignalTheme.border).frame(height: 1) }
     }
 
     private var findingsSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("WHAT THE EVIDENCE SHOWS").sectionLabel()
+                    Text("Findings")
+                        .font(.system(size: 13, weight: .semibold))
                     Text(item.detectionNote.isEmpty ? "Exact matches and time-based context are labeled separately." : item.detectionNote)
-                        .font(.system(size: 10))
+                        .font(.system(size: 9.5))
                         .foregroundStyle(SignalTheme.muted)
+                        .lineLimit(1)
                 }
                 Spacer()
-                Text("RULE-BASED")
-                    .font(.system(size: 8, weight: .bold, design: .monospaced))
-                    .foregroundStyle(SignalTheme.lime)
-                    .padding(.horizontal, 9)
-                    .frame(height: 25)
-                    .background(SignalTheme.lime.opacity(0.08), in: Capsule())
             }
 
             VStack(spacing: 0) {
@@ -531,19 +536,20 @@ private struct CaseDetailView: View {
                     }
                 }
             }
-            .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 17))
-            .overlay { RoundedRectangle(cornerRadius: 17).stroke(SignalTheme.border) }
+            .background(SignalTheme.surface.opacity(0.62), in: RoundedRectangle(cornerRadius: 11))
+            .overlay { RoundedRectangle(cornerRadius: 11).stroke(SignalTheme.border) }
         }
-        .padding(.top, 34)
+        .padding(.top, 28)
     }
 
     private var timelineSection: some View {
-        VStack(alignment: .leading, spacing: 17) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("UNIFIED TIMELINE").sectionLabel()
+                Text("Timeline")
+                    .font(.system(size: 13, weight: .semibold))
                 Spacer()
-                Text("\(item.events.count) RELATED EVENTS")
-                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                Text("\(item.events.count) events")
+                    .font(.system(size: 9))
                     .foregroundStyle(SignalTheme.muted)
             }
 
@@ -552,14 +558,17 @@ private struct CaseDetailView: View {
                     EventRow(event: event, showConnector: index < item.events.count - 1)
                 }
             }
+            .padding(14)
+            .background(SignalTheme.surface.opacity(0.38), in: RoundedRectangle(cornerRadius: 11))
         }
-        .padding(.top, 36)
+        .padding(.top, 28)
     }
 
     private var lowerSection: some View {
-        HStack(alignment: .top, spacing: 34) {
+        HStack(alignment: .top, spacing: 30) {
             VStack(alignment: .leading, spacing: 14) {
-                Text("RELEVANT CODE").sectionLabel()
+                Text("Relevant code")
+                    .font(.system(size: 13, weight: .semibold))
                 if item.codeReferences.isEmpty {
                     Text("No source path matched yet.")
                         .font(.system(size: 11))
@@ -595,7 +604,8 @@ private struct CaseDetailView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 14) {
-                Text("REPRODUCE IT").sectionLabel()
+                Text("Reproduce")
+                    .font(.system(size: 13, weight: .semibold))
                 ForEach(Array(item.reproduction.enumerated()), id: \.offset) { index, step in
                     HStack(alignment: .top, spacing: 10) {
                         Text("\(index + 1)")
@@ -612,21 +622,20 @@ private struct CaseDetailView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.top, 38)
+        .padding(.top, 28)
     }
 
-    private func metric(_ label: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(label).sectionLabel()
+    private func metric(_ label: String, value: String, icon: String) -> some View {
+        HStack(spacing: 7) {
+            Image(systemName: icon)
+                .font(.system(size: 9))
+                .foregroundStyle(SignalTheme.muted)
             Text(value)
-                .font(.system(size: 18, weight: .bold, design: .rounded))
+                .font(.system(size: 10.5, weight: .semibold))
+            Text(label)
+                .font(.system(size: 9.5))
+                .foregroundStyle(SignalTheme.muted)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 18)
-    }
-
-    private var metricDivider: some View {
-        Rectangle().fill(SignalTheme.border).frame(width: 1, height: 35)
     }
 }
 
@@ -636,12 +645,11 @@ private struct FindingRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 13) {
-            ZStack {
-                Circle().fill(toneColor.opacity(0.11)).frame(width: 28, height: 28)
-                Text(String(format: "%02d", index))
-                    .font(.system(size: 8, weight: .black, design: .monospaced))
-                    .foregroundStyle(toneColor)
-            }
+            Image(systemName: toneIcon)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(toneColor)
+                .frame(width: 26, height: 26)
+                .background(toneColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 4) {
                 Text(finding.title)
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
@@ -651,11 +659,9 @@ private struct FindingRow: View {
                     .lineSpacing(2)
             }
             Spacer()
-            Image(systemName: toneIcon)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(toneColor)
         }
-        .padding(15)
+        .padding(.horizontal, 13)
+        .padding(.vertical, 12)
     }
 
     private var toneColor: Color {
@@ -749,77 +755,52 @@ private struct CaptureSheet: View {
     private let windows = [5, 15, 30, 60]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
+        VStack(alignment: .leading, spacing: 20) {
             HStack {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 13).fill(SignalTheme.lime).frame(width: 42, height: 42)
-                    Image(systemName: "viewfinder").font(.system(size: 18, weight: .bold)).foregroundStyle(.black)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Sync logs")
+                        .font(.system(size: 21, weight: .bold, design: .rounded))
+                    Text("Check recent activity for real failures.")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(SignalTheme.muted)
                 }
                 Spacer()
                 Button { dismiss() } label: { Image(systemName: "xmark") }
                     .buttonStyle(CircleButtonStyle())
-            }
-
-            VStack(alignment: .leading, spacing: 7) {
-                Text("SYNC RECENT ACTIVITY").sectionLabel()
-                Text("Find problems in real logs")
-                    .font(.system(size: 27, weight: .bold, design: .rounded))
-                Text("Choose connected sources and a time window. Signalcase imports the events, redacts secrets, and creates cases only for failures or unusual warnings.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(SignalTheme.muted)
-                    .lineSpacing(3)
+                    .focusEffectDisabled()
             }
 
             VStack(alignment: .leading, spacing: 10) {
-                Text("TIME WINDOW").sectionLabel()
-                HStack(spacing: 8) {
+                Text("Time window").font(.system(size: 11, weight: .semibold))
+                Picker("Time window", selection: $minutes) {
                     ForEach(windows, id: \.self) { window in
-                        Button { minutes = window } label: {
-                            Text(window == 60 ? "1 hour" : "\(window) min")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(minutes == window ? .black : SignalTheme.text)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 38)
-                                .background(minutes == window ? SignalTheme.lime : SignalTheme.surface, in: RoundedRectangle(cornerRadius: 11))
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(HoverButtonStyle())
+                        Text(window == 60 ? "1 hour" : "\(window) min").tag(window)
                     }
                 }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .tint(SignalTheme.lime)
             }
 
             VStack(alignment: .leading, spacing: 10) {
-                Text("SOURCES").sectionLabel()
-                HStack(spacing: 8) {
-                    ForEach([LogSource.supabase, .stripe, .render, .revenueCat, .sentry]) { source in
-                        let isConnected = model.availableSyncSources.contains(source)
-                        Button {
-                            guard isConnected else { model.openSettings(.connections); return }
-                            if selectedSources.contains(source) { selectedSources.remove(source) }
-                            else { selectedSources.insert(source) }
-                        } label: {
-                            VStack(spacing: 7) {
-                                Image(systemName: source.systemImage)
-                                    .font(.system(size: 15, weight: .semibold))
-                                Text(source.title)
-                                    .font(.system(size: 8, weight: .semibold))
-                                    .lineLimit(1)
-                                Text(isConnected ? "READY" : "SET UP")
-                                    .font(.system(size: 6, weight: .bold, design: .monospaced))
-                            }
-                            .foregroundStyle(selectedSources.contains(source) && isConnected ? sourceColor(source) : SignalTheme.muted)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 60)
-                            .background(selectedSources.contains(source) ? sourceColor(source).opacity(0.09) : SignalTheme.surface, in: RoundedRectangle(cornerRadius: 12))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 12)
-                                    .stroke(selectedSources.contains(source) ? sourceColor(source).opacity(0.35) : SignalTheme.border)
-                            }
-                            .contentShape(Rectangle())
+                HStack {
+                    Text("Sources").font(.system(size: 11, weight: .semibold))
+                    Spacer()
+                    Text("\(selectedSources.intersection(model.availableSyncSources).count) selected")
+                        .font(.system(size: 9))
+                        .foregroundStyle(SignalTheme.muted)
+                }
+
+                VStack(spacing: 0) {
+                    ForEach([LogSource.supabase, .stripe, .render, .revenueCat, .sentry, .application]) { source in
+                        sourceRow(source)
+                        if source != .application {
+                            Rectangle().fill(SignalTheme.border).frame(height: 1).padding(.leading, 46)
                         }
-                        .buttonStyle(HoverButtonStyle())
                     }
                 }
+                .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 11))
+                .overlay(RoundedRectangle(cornerRadius: 11).stroke(SignalTheme.border))
             }
 
             HStack {
@@ -829,9 +810,6 @@ private struct CaptureSheet: View {
                 .buttonStyle(QuietButtonStyle())
 
                 Spacer()
-
-                Button("Cancel") { dismiss() }
-                    .buttonStyle(QuietButtonStyle())
 
                 Button {
                     Task {
@@ -848,21 +826,63 @@ private struct CaptureSheet: View {
                         } else {
                             Image(systemName: "waveform.path.ecg")
                         }
-                        Text(model.isCapturing ? "Checking providers…" : "Sync and detect cases")
+                        Text(model.isCapturing ? "Checking…" : "Sync logs")
                     }
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.black)
                     .padding(.horizontal, 17)
-                    .frame(height: 42)
-                    .background(SignalTheme.lime, in: RoundedRectangle(cornerRadius: 13))
+                    .frame(height: 38)
+                    .background(SignalTheme.lime, in: RoundedRectangle(cornerRadius: 10))
                 }
                 .buttonStyle(ScaleButtonStyle())
-                .disabled(model.isCapturing)
+                .disabled(model.isCapturing || selectedSources.intersection(model.availableSyncSources).isEmpty)
             }
         }
-        .padding(28)
-        .frame(width: 650)
+        .padding(24)
+        .frame(width: 560)
         .background(SignalTheme.background)
+        .onAppear {
+            selectedSources.formIntersection(model.availableSyncSources)
+            if selectedSources.isEmpty { selectedSources = model.availableSyncSources }
+        }
+    }
+
+    private func sourceRow(_ source: LogSource) -> some View {
+        let connected = model.availableSyncSources.contains(source)
+        let selected = connected && selectedSources.contains(source)
+        return Button {
+            guard connected else {
+                model.isCapturePresented = false
+                Task {
+                    try? await Task.sleep(for: .milliseconds(180))
+                    model.openSettings(.connections)
+                }
+                return
+            }
+            if selected { selectedSources.remove(source) }
+            else { selectedSources.insert(source) }
+        } label: {
+            HStack(spacing: 11) {
+                Image(systemName: source.systemImage)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(sourceColor(source))
+                    .frame(width: 24)
+                Text(source.title)
+                    .font(.system(size: 11, weight: .medium))
+                Spacer()
+                Text(connected ? (selected ? "Included" : "Not included") : "Set up")
+                    .font(.system(size: 9))
+                    .foregroundStyle(SignalTheme.muted)
+                Image(systemName: connected ? (selected ? "checkmark.circle.fill" : "circle") : "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(selected ? SignalTheme.lime : SignalTheme.muted)
+                    .frame(width: 16)
+            }
+            .padding(.horizontal, 13)
+            .frame(height: 43)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(HoverButtonStyle())
     }
 }
 
@@ -887,6 +907,7 @@ private struct SettingsSheet: View {
                             .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
+                    .focusEffectDisabled()
                     .help("Close settings")
                     .keyboardShortcut(.cancelAction)
                 }
@@ -947,6 +968,7 @@ private struct SettingsSheet: View {
             .contentShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(HoverButtonStyle())
+        .focusEffectDisabled()
     }
 }
 
@@ -955,124 +977,102 @@ private struct GeneralSettingsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                VStack(alignment: .leading, spacing: 7) {
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 5) {
                     Text("GENERAL").sectionLabel()
-                    Text("Workspace")
-                        .font(.system(size: 25, weight: .bold, design: .rounded))
-                    Text("Manage the project Signalcase searches and understand the case workflow.")
-                        .font(.system(size: 11))
+                    Text("Settings")
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                    Text("Workspace and app preferences")
+                        .font(.system(size: 10.5))
                         .foregroundStyle(SignalTheme.muted)
                 }
 
-                settingsSection(title: "PROJECT", subtitle: "Used only to locate relevant source files.") {
-                    HStack(spacing: 13) {
-                        Image(systemName: "folder.fill")
-                            .font(.system(size: 15))
-                            .foregroundStyle(SignalTheme.lime)
-                            .frame(width: 24)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(model.projectName)
-                                .font(.system(size: 12, weight: .semibold))
-                            Text(model.linkedProjectURL?.path ?? "No folder selected")
-                                .font(.system(size: 9))
-                                .foregroundStyle(SignalTheme.muted)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
-                        Spacer()
-                        Button(model.linkedProjectURL == nil ? "Choose folder" : "Change") { model.chooseProject() }
-                            .buttonStyle(QuietButtonStyle())
-                    }
-                }
-
-                settingsSection(title: "CONNECTIONS", subtitle: "Services Signalcase can read evidence from.") {
-                    HStack(spacing: 13) {
-                        Image(systemName: "point.3.connected.trianglepath.dotted")
-                            .font(.system(size: 15))
-                            .foregroundStyle(SignalTheme.blue)
-                            .frame(width: 24)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(model.connectedCount == 1 ? "1 source connected" : "\(model.connectedCount) sources connected")
-                                .font(.system(size: 12, weight: .semibold))
-                            Text("Supabase, Render, Stripe, RevenueCat, Sentry, and application logs")
-                                .font(.system(size: 9))
-                                .foregroundStyle(SignalTheme.muted)
-                        }
-                        Spacer()
-                        Button("Manage") { model.settingsSection = .connections }
-                            .buttonStyle(QuietButtonStyle())
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("CASE WORKFLOW").sectionLabel()
-                    Text("Each status answers a simple question. You can move a case forward from its case page.")
-                        .font(.system(size: 10))
-                        .foregroundStyle(SignalTheme.muted)
-
+                VStack(alignment: .leading, spacing: 9) {
+                    Text("WORKSPACE").sectionLabel()
                     VStack(spacing: 0) {
-                        ForEach(Array(CaseStatus.allCases.enumerated()), id: \.element.id) { index, status in
-                            HStack(alignment: .top, spacing: 12) {
-                                Circle()
-                                    .fill(color(for: status))
-                                    .frame(width: 7, height: 7)
-                                    .padding(.top, 4)
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(status.title)
-                                        .font(.system(size: 11.5, weight: .semibold))
-                                    Text(status.explanation)
-                                        .font(.system(size: 9.5))
-                                        .foregroundStyle(SignalTheme.muted)
-                                }
-                                Spacer()
-                            }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 12)
-
-                            if index < CaseStatus.allCases.count - 1 {
-                                Rectangle().fill(SignalTheme.border).frame(height: 1).padding(.leading, 33)
-                            }
-                        }
+                        settingsRow(
+                            icon: "folder.fill",
+                            tint: SignalTheme.lime,
+                            title: model.projectName,
+                            detail: model.linkedProjectURL?.path ?? "No project folder selected",
+                            actionTitle: model.linkedProjectURL == nil ? "Choose" : "Change",
+                            action: model.chooseProject
+                        )
+                        rowDivider
+                        settingsRow(
+                            icon: "point.3.connected.trianglepath.dotted",
+                            tint: SignalTheme.blue,
+                            title: model.connectedCount == 1 ? "1 connection" : "\(model.connectedCount) connections",
+                            detail: "Supabase, Render, Stripe, RevenueCat, Sentry, and app logs",
+                            actionTitle: "Manage"
+                        ) { model.settingsSection = .connections }
+                        rowDivider
+                        settingsRow(
+                            icon: "list.bullet.rectangle",
+                            tint: SignalTheme.purple,
+                            title: "Activity & data",
+                            detail: model.lastSyncReport?.summary ?? "No sync activity yet",
+                            actionTitle: "Open"
+                        ) { model.settingsSection = .activity }
                     }
-                    .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 14))
-                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(SignalTheme.border))
+                    .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 12))
                 }
 
-                settingsSection(title: "ACTIVITY & DATA", subtitle: "Review ignored events, muted errors, deleted cases, or clear local history.") {
-                    HStack {
-                        Text(model.lastSyncReport?.summary ?? "No sync activity yet")
-                            .font(.system(size: 10))
-                            .foregroundStyle(SignalTheme.muted)
-                            .lineLimit(2)
-                        Spacer()
-                        Button("Open") { model.settingsSection = .activity }
-                            .buttonStyle(QuietButtonStyle())
+                VStack(alignment: .leading, spacing: 9) {
+                    Text("HELP").sectionLabel()
+                    VStack(spacing: 0) {
+                        settingsRow(
+                            icon: "sparkles",
+                            tint: SignalTheme.yellow,
+                            title: "Show onboarding",
+                            detail: "Review setup and the case workflow",
+                            actionTitle: "Show",
+                            action: model.restartOnboarding
+                        )
                     }
+                    .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 12))
                 }
             }
-            .padding(28)
+            .padding(26)
             .frame(maxWidth: 680, alignment: .leading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(SignalTheme.background)
     }
 
-    private func settingsSection<Content: View>(
+    private func settingsRow(
+        icon: String,
+        tint: Color,
         title: String,
-        subtitle: String,
-        @ViewBuilder content: () -> Content
+        detail: String,
+        actionTitle: String,
+        action: @escaping () -> Void
     ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title).sectionLabel()
-            Text(subtitle)
-                .font(.system(size: 9.5))
-                .foregroundStyle(SignalTheme.muted)
-            content()
-                .padding(14)
-                .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 14))
-                .overlay(RoundedRectangle(cornerRadius: 14).stroke(SignalTheme.border))
+        HStack(spacing: 13) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(tint)
+                .frame(width: 28, height: 28)
+                .background(tint.opacity(0.09), in: RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 11.5, weight: .semibold))
+                Text(detail)
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(SignalTheme.muted)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer(minLength: 12)
+            Button(actionTitle, action: action)
+                .buttonStyle(QuietButtonStyle())
         }
+        .padding(.horizontal, 14)
+        .frame(minHeight: 64)
+    }
+
+    private var rowDivider: some View {
+        Rectangle().fill(SignalTheme.border).frame(height: 1).padding(.leading, 55)
     }
 }
 
@@ -1084,19 +1084,19 @@ private struct ConnectionsSettingsView: View {
     @State private var signingSecret = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            VStack(alignment: .leading, spacing: 7) {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 5) {
                 Text("CONNECTIONS").sectionLabel()
                 Text("Evidence sources")
-                    .font(.system(size: 25, weight: .bold, design: .rounded))
-                Text("Choose a source, enter its credentials, then test it against real recent activity. Signalcase makes read requests only, and secrets are stored in your Mac Keychain.")
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                Text("Choose a source to connect or update.")
                     .font(.system(size: 11))
                     .foregroundStyle(SignalTheme.muted)
             }
 
-            HStack(alignment: .top, spacing: 16) {
+            HStack(alignment: .top, spacing: 12) {
                 ScrollView {
-                    VStack(spacing: 6) {
+                    VStack(spacing: 2) {
                         ForEach(model.integrations) { integration in
                             Button { selectedSource = integration.source } label: {
                                 HStack(spacing: 10) {
@@ -1116,15 +1116,15 @@ private struct ConnectionsSettingsView: View {
                                         .foregroundStyle(SignalTheme.muted)
                                 }
                                 .padding(.horizontal, 11)
-                                .frame(height: 48)
-                                .background(selectedSource == integration.source ? SignalTheme.raised : Color.clear, in: RoundedRectangle(cornerRadius: 13))
+                                .frame(height: 44)
+                                .background(selectedSource == integration.source ? SignalTheme.raised : Color.clear, in: RoundedRectangle(cornerRadius: 9))
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(HoverButtonStyle())
                         }
                     }
                 }
-                .frame(width: 190, height: 365)
+                .frame(width: 184, height: 390)
 
                 VStack(alignment: .leading, spacing: 14) {
                     HStack {
@@ -1171,19 +1171,19 @@ private struct ConnectionsSettingsView: View {
                         .buttonStyle(PrimaryButtonStyle())
                     }
                 }
-                .padding(18)
-                .frame(maxWidth: .infinity, minHeight: 365, alignment: .topLeading)
-                .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 17))
-                .overlay { RoundedRectangle(cornerRadius: 17).stroke(SignalTheme.border) }
+                .padding(16)
+                .frame(maxWidth: .infinity, minHeight: 390, alignment: .topLeading)
+                .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 11))
+                .overlay { RoundedRectangle(cornerRadius: 11).stroke(SignalTheme.border) }
             }
 
-            HStack {
+            if selectedSource == .revenueCat || selectedSource == .application {
                 Text(model.receiverStatus)
                     .font(.system(size: 8, design: .monospaced))
                     .foregroundStyle(SignalTheme.muted)
             }
         }
-        .padding(26)
+        .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(SignalTheme.background)
         .onChange(of: selectedSource) {
@@ -1229,8 +1229,8 @@ private struct ConnectionsSettingsView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(label).sectionLabel()
             TextField(placeholder, text: text).textFieldStyle(.plain)
-                .padding(.horizontal, 11).frame(height: 36)
-                .background(SignalTheme.raised, in: RoundedRectangle(cornerRadius: 10))
+                .padding(.horizontal, 10).frame(height: 34)
+                .background(SignalTheme.raised, in: RoundedRectangle(cornerRadius: 8))
         }
     }
 
@@ -1238,8 +1238,8 @@ private struct ConnectionsSettingsView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(label).sectionLabel()
             TextField("9782", value: value, format: .number).textFieldStyle(.plain)
-                .padding(.horizontal, 11).frame(height: 36)
-                .background(SignalTheme.raised, in: RoundedRectangle(cornerRadius: 10))
+                .padding(.horizontal, 10).frame(height: 34)
+                .background(SignalTheme.raised, in: RoundedRectangle(cornerRadius: 8))
         }
     }
 
@@ -1247,8 +1247,8 @@ private struct ConnectionsSettingsView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(label).sectionLabel()
             SecureField(placeholder, text: text).textFieldStyle(.plain)
-                .padding(.horizontal, 11).frame(height: 36)
-                .background(SignalTheme.raised, in: RoundedRectangle(cornerRadius: 10))
+                .padding(.horizontal, 10).frame(height: 34)
+                .background(SignalTheme.raised, in: RoundedRectangle(cornerRadius: 8))
         }
     }
 
@@ -1256,8 +1256,8 @@ private struct ConnectionsSettingsView: View {
         Text(value)
             .font(.system(size: 10, weight: .semibold, design: .monospaced))
             .foregroundStyle(SignalTheme.blue)
-            .padding(.horizontal, 11).frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
-            .background(SignalTheme.blue.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
+            .padding(.horizontal, 10).frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+            .background(SignalTheme.blue.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
     }
 
     private func help(_ value: String) -> some View {
@@ -1362,10 +1362,13 @@ private struct HoverButtonStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
-                .background(hovering ? Color.white.opacity(0.025) : Color.clear)
+                .brightness(hovering ? 0.025 : 0)
                 .opacity(configuration.isPressed ? 0.72 : 1)
                 .animation(.easeOut(duration: 0.12), value: hovering)
-                .onHover { hovering = $0 }
+                .onHover { value in
+                    hovering = value
+                    value ? NSCursor.pointingHand.set() : NSCursor.arrow.set()
+                }
         }
     }
 }
@@ -1375,9 +1378,10 @@ private struct CircleButtonStyle: ButtonStyle {
         configuration.label
             .font(.system(size: 10, weight: .bold))
             .foregroundStyle(SignalTheme.muted)
-            .frame(width: 32, height: 32)
+            .frame(width: 28, height: 28)
             .background(configuration.isPressed ? SignalTheme.raised : SignalTheme.surface, in: Circle())
             .contentShape(Circle())
+            .focusEffectDisabled()
     }
 }
 
@@ -1385,10 +1389,11 @@ private struct QuietButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(SignalTheme.muted)
-            .padding(.horizontal, 14)
-            .frame(height: 40)
-            .background(configuration.isPressed ? SignalTheme.raised : SignalTheme.surface, in: RoundedRectangle(cornerRadius: 12))
+            .foregroundStyle(SignalTheme.text.opacity(0.76))
+            .padding(.horizontal, 12)
+            .frame(height: 34)
+            .background(configuration.isPressed ? SignalTheme.raisedHover : SignalTheme.surface, in: RoundedRectangle(cornerRadius: 9))
+            .focusEffectDisabled()
     }
 }
 
@@ -1397,10 +1402,11 @@ private struct PrimaryButtonStyle: ButtonStyle {
         configuration.label
             .font(.system(size: 10, weight: .bold))
             .foregroundStyle(.black)
-            .padding(.horizontal, 18)
-            .frame(height: 40)
-            .background(SignalTheme.lime, in: RoundedRectangle(cornerRadius: 12))
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .padding(.horizontal, 15)
+            .frame(height: 34)
+            .background(SignalTheme.lime.opacity(configuration.isPressed ? 0.78 : 1), in: RoundedRectangle(cornerRadius: 9))
+            .scaleEffect(configuration.isPressed ? 0.985 : 1)
+            .focusEffectDisabled()
     }
 }
 
@@ -1415,10 +1421,9 @@ private extension View {
         font(.system(size: 9, weight: .semibold))
             .foregroundStyle(SignalTheme.text)
             .padding(.horizontal, 12)
-            .frame(height: 36)
-            .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 11))
-            .overlay { RoundedRectangle(cornerRadius: 11).stroke(SignalTheme.border) }
-            .contentShape(Rectangle())
+            .frame(height: 32)
+            .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 8))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 
