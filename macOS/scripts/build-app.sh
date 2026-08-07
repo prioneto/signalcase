@@ -12,15 +12,26 @@ EXECUTABLE_PATH="${PROJECT_DIR}/.build/${CONFIGURATION}/Signalcase"
 
 read_env_value() {
     local key="$1"
-    local file="${PROJECT_DIR:h}/website/.env.local"
+    local file="$2"
     [[ -f "${file}" ]] || return 0
     awk -F= -v key="${key}" '$1 == key { sub(/^[^=]*=/, ""); print; exit }' "${file}"
 }
 
-SUPABASE_URL="${SIGNALCASE_SUPABASE_URL:-$(read_env_value NEXT_PUBLIC_SUPABASE_URL)}"
-SUPABASE_PUBLISHABLE_KEY="${SIGNALCASE_SUPABASE_PUBLISHABLE_KEY:-$(read_env_value NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)}"
-CLOUD_URL="${SIGNALCASE_CLOUD_URL:-$(read_env_value NEXT_PUBLIC_SITE_URL)}"
+BUILD_ENV_FILE="${PROJECT_DIR}/.env.build"
+WEBSITE_ENV_FILE="${PROJECT_DIR:h}/website/.env.local"
+
+SUPABASE_URL="${SIGNALCASE_SUPABASE_URL:-$(read_env_value SIGNALCASE_SUPABASE_URL "${BUILD_ENV_FILE}")}"
+SUPABASE_URL="${SUPABASE_URL:-$(read_env_value NEXT_PUBLIC_SUPABASE_URL "${WEBSITE_ENV_FILE}")}"
+SUPABASE_PUBLISHABLE_KEY="${SIGNALCASE_SUPABASE_PUBLISHABLE_KEY:-$(read_env_value SIGNALCASE_SUPABASE_PUBLISHABLE_KEY "${BUILD_ENV_FILE}")}"
+SUPABASE_PUBLISHABLE_KEY="${SUPABASE_PUBLISHABLE_KEY:-$(read_env_value NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY "${WEBSITE_ENV_FILE}")}"
+CLOUD_URL="${SIGNALCASE_CLOUD_URL:-$(read_env_value SIGNALCASE_CLOUD_URL "${BUILD_ENV_FILE}")}"
+CLOUD_URL="${CLOUD_URL:-$(read_env_value NEXT_PUBLIC_SITE_URL "${WEBSITE_ENV_FILE}")}"
 CLOUD_URL="${CLOUD_URL:-http://localhost:3002}"
+
+if [[ -z "${SUPABASE_URL}" || -z "${SUPABASE_PUBLISHABLE_KEY}" ]]; then
+    print -u2 "Missing public app configuration. Copy .env.build.example to .env.build and fill it in."
+    exit 1
+fi
 
 cd "${PROJECT_DIR}"
 swift build --configuration "${CONFIGURATION}"

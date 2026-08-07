@@ -124,19 +124,22 @@ npm run dev
 
 ## 6. Build the production Mac app
 
-Only public configuration is compiled into the app:
+Save the public production configuration once:
 
 ```bash
 cd macOS
-SIGNALCASE_CLOUD_URL=https://YOUR_DOMAIN \
-SIGNALCASE_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co \
-SIGNALCASE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_REPLACE_ME \
+cp .env.build.example .env.build
+```
+
+Open `macOS/.env.build`, replace its three placeholder values, and save it. The file is ignored by Git. From then on, build and open the app with only:
+
+```bash
 ./scripts/build-app.sh --open
 ```
 
 The app is created at `macOS/.build/Signalcase.app`. The build script registers the `signalcase://` callback scheme. It never embeds the Supabase secret key, Management OAuth client secret, provider access tokens, or encryption key.
 
-For local testing, the build script can read the three public values from `website/.env.local`; with its current local site URL it points the app at `http://localhost:3002`.
+The build checks `macOS/.env.build` first. If that file does not exist, it reads the three public values from `website/.env.local`, which keeps the existing localhost workflow working.
 
 ## 7. Verify the real end-to-end flow
 

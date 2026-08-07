@@ -1,6 +1,7 @@
 .DS_Store
 .build/
 macOS/.build/
+macOS/.env.build
 website/.next/
 website/node_modules/
 website/npm-debug.log*
