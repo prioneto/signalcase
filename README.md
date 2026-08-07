@@ -16,7 +16,7 @@ The packaged app is created at `macOS/.build/Signalcase.app`.
 Try these flows:
 
 - In onboarding or Settings, sign in with GitHub and select the local project folder. This links the Mac folder to the team's Signalcase project.
-- Open **Connections**, enter the Supabase project reference, and click **Connect Supabase**. Authorization happens in a native macOS authentication sheet. The resulting provider tokens are encrypted on the server and are never saved in the app.
+- Open **Connections**, enter the Supabase project reference, and click **Connect Supabase**. Authorization opens in the user's default browser and returns through the app's secure callback. The resulting provider tokens are encrypted on the server and are never saved in the app.
 - Other provider credentials currently use macOS Keychain. Prefer the narrowest read-only permissions available.
 - Click **Sync recent logs**, choose connected sources and a window, then let Signalcase detect cases. Provider pages and temporary rate limits are handled automatically.
 - Enable **Automatic sync** in Settings to incrementally check connected pull-based sources every 5, 15, 30, or 60 minutes while Signalcase is open.

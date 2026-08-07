@@ -1,5 +1,4 @@
 import AppKit
-import AuthenticationServices
 import Foundation
 import Supabase
 
@@ -42,8 +41,8 @@ private struct APIErrorEnvelope: Codable { let error: String }
 final class SignalcaseCloud {
     private let client: SupabaseClient?
     private let serverURL: URL?
-    private var providerSession: ASWebAuthenticationSession?
-    private let presentationProvider = WebAuthenticationPresentationProvider()
+    private var pendingBrowserCallback: PendingBrowserCallback?
+    private var browserTimeoutTask: Task<Void, Never>?
 
     init(bundle: Bundle = .main, environment: [String: String] = ProcessInfo.processInfo.environment) {
         let supabaseURLValue = environment["SIGNALCASE_SUPABASE_URL"]
@@ -85,10 +84,15 @@ final class SignalcaseCloud {
         guard let client else {
             throw SignalcaseCloudError.notConfigured("This build is missing its Signalcase Cloud settings.")
         }
-        let session = try await client.auth.signInWithOAuth(
+        let authorizationURL = try client.auth.getOAuthSignInURL(
             provider: .github,
             redirectTo: URL(string: "signalcase://auth/callback")
         )
+        let callbackURL = try await openInDefaultBrowser(
+            authorizationURL,
+            expectedCallbackHost: "auth"
+        )
+        let session = try await client.auth.session(from: callbackURL)
         return session.user.email
     }
 
@@ -124,7 +128,10 @@ final class SignalcaseCloud {
                 "externalProjectRef": externalProjectRef,
             ]
         )
-        let callback = try await runWebAuthentication(url: envelope.authorizationUrl)
+        let callback = try await openInDefaultBrowser(
+            envelope.authorizationUrl,
+            expectedCallbackHost: "integration"
+        )
         let components = URLComponents(url: callback, resolvingAgainstBaseURL: false)
         let values = Dictionary(uniqueKeysWithValues: (components?.queryItems ?? []).map { ($0.name, $0.value ?? "") })
         guard values["status"] == "connected" else {
@@ -158,9 +165,19 @@ final class SignalcaseCloud {
         return payload
     }
 
-    func handle(_ url: URL) {
-        guard url.host == "auth" else { return }
-        client?.handle(url)
+    func handle(_ url: URL) async -> String? {
+        if pendingBrowserCallback?.expectedHost == url.host {
+            finishBrowserFlow(.success(url))
+            return nil
+        }
+        guard url.host == "auth", let client else { return nil }
+        return try? await client.auth.session(from: url).user.email
+    }
+
+    func cancelPendingBrowserFlow() {
+        finishBrowserFlow(.failure(
+            SignalcaseCloudError.server("Browser authentication cancelled. Nothing was changed.")
+        ))
     }
 
     private func request<Response: Decodable, Body: Encodable>(
@@ -208,24 +225,43 @@ final class SignalcaseCloud {
         return data
     }
 
-    private func runWebAuthentication(url: URL) async throws -> URL {
+    private func openInDefaultBrowser(
+        _ url: URL,
+        expectedCallbackHost: String
+    ) async throws -> URL {
         try await withCheckedThrowingContinuation { continuation in
-            let session = ASWebAuthenticationSession(
-                url: url,
-                callbackURLScheme: "signalcase"
-            ) { [weak self] callbackURL, error in
-                self?.providerSession = nil
-                if let callbackURL { continuation.resume(returning: callbackURL) }
-                else { continuation.resume(throwing: error ?? SignalcaseCloudError.invalidResponse) }
+            if pendingBrowserCallback != nil {
+                finishBrowserFlow(.failure(
+                    SignalcaseCloudError.server("A newer browser authentication request replaced the previous one.")
+                ))
             }
-            session.presentationContextProvider = presentationProvider
-            session.prefersEphemeralWebBrowserSession = false
-            providerSession = session
-            if !session.start() {
-                providerSession = nil
-                continuation.resume(throwing: SignalcaseCloudError.server("Could not open Supabase authorization."))
+            pendingBrowserCallback = PendingBrowserCallback(
+                expectedHost: expectedCallbackHost,
+                continuation: continuation
+            )
+            guard NSWorkspace.shared.open(url) else {
+                finishBrowserFlow(.failure(
+                    SignalcaseCloudError.server("Could not open the default browser.")
+                ))
+                return
+            }
+            browserTimeoutTask?.cancel()
+            browserTimeoutTask = Task { [weak self] in
+                do { try await Task.sleep(for: .seconds(300)) }
+                catch { return }
+                self?.finishBrowserFlow(.failure(
+                    SignalcaseCloudError.server("Browser authentication timed out. Try again when you are ready.")
+                ))
             }
         }
+    }
+
+    private func finishBrowserFlow(_ result: Result<URL, Error>) {
+        guard let pendingBrowserCallback else { return }
+        self.pendingBrowserCallback = nil
+        browserTimeoutTask?.cancel()
+        browserTimeoutTask = nil
+        pendingBrowserCallback.continuation.resume(with: result)
     }
 
     private static func slug(from value: String) -> String {
@@ -236,8 +272,7 @@ final class SignalcaseCloud {
     }
 }
 
-private final class WebAuthenticationPresentationProvider: NSObject, ASWebAuthenticationPresentationContextProviding {
-    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        NSApplication.shared.keyWindow ?? NSApplication.shared.windows.first ?? ASPresentationAnchor()
-    }
+private struct PendingBrowserCallback {
+    let expectedHost: String
+    let continuation: CheckedContinuation<URL, Error>
 }

@@ -133,11 +133,12 @@ struct OnboardingView: View {
                 }
                 .buttonStyle(OnboardingSecondaryButtonStyle())
 
-                Button(model.isSignedIn ? "Signed in as \(model.cloudEmail ?? "team member")" : "Sign in with GitHub") {
-                    Task { await model.signInToSignalcase() }
+                Button(model.isCloudBusy ? "Cancel browser sign-in" : (model.isSignedIn ? "Signed in as \(model.cloudEmail ?? "team member")" : "Sign in with GitHub")) {
+                    if model.isCloudBusy { model.cancelCloudAuthentication() }
+                    else { Task { await model.signInToSignalcase() } }
                 }
                 .buttonStyle(OnboardingSecondaryButtonStyle())
-                .disabled(model.isSignedIn || model.isCloudBusy)
+                .disabled(model.isSignedIn && !model.isCloudBusy)
             }
             .padding(30)
             .frame(width: 340)

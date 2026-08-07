@@ -146,10 +146,10 @@ The build checks `macOS/.env.build` first. If that file does not exist, it reads
 1. Start or deploy the website server.
 2. Open the newly built Signalcase app.
 3. Complete onboarding and select a local project folder.
-4. Click **Sign in with GitHub**. The macOS authentication sheet should close and show your email.
+4. Click **Sign in with GitHub**. Your default browser should open, then return to Signalcase and show your email.
 5. Open **Settings** → **Connections** → **Supabase**.
 6. Find the monitored project's reference in its Supabase dashboard URL or **Project Settings**, paste it, and click **Connect Supabase**.
-7. Approve the `analytics:read` request. The sheet should close and the connection should show **Connected**.
+7. Approve the `analytics:read` request. The browser should return to Signalcase and the connection should show **Connected**.
 8. In the monitored Supabase project's **SQL Editor**, run this harmless failing read to create a real error log:
 
 ```sql

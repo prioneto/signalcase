@@ -995,10 +995,11 @@ private struct GeneralSettingsView: View {
                             tint: model.isSignedIn ? SignalTheme.lime : SignalTheme.muted,
                             title: model.cloudEmail ?? "Signalcase account",
                             detail: model.isSignedIn ? "Signed in · team connections are available" : "Sign in to connect team services securely",
-                            actionTitle: model.isSignedIn ? "Sign out" : "Sign in"
+                            actionTitle: model.isCloudBusy ? "Cancel" : (model.isSignedIn ? "Sign out" : "Sign in")
                         ) {
                             Task {
-                                if model.isSignedIn { await model.signOutOfSignalcase() }
+                                if model.isCloudBusy { model.cancelCloudAuthentication() }
+                                else if model.isSignedIn { await model.signOutOfSignalcase() }
                                 else { await model.signInToSignalcase() }
                             }
                         }
@@ -1216,6 +1217,10 @@ private struct ConnectionsSettingsView: View {
                     Spacer()
 
                     HStack {
+                        if selectedSource == .supabase, model.isCloudBusy {
+                            Button("Cancel browser sign-in") { model.cancelCloudAuthentication() }
+                                .buttonStyle(QuietButtonStyle())
+                        }
                         if let state = integration(for: selectedSource)?.state,
                            [.connected, .waitingForEvent].contains(state) {
                             Button("Disconnect") { model.disconnect(selectedSource) }
@@ -1227,7 +1232,7 @@ private struct ConnectionsSettingsView: View {
                                 Task { await model.connectSupabase() }
                             } label: {
                                 if model.isCloudBusy {
-                                    ProgressView().controlSize(.small)
+                                    Text("Waiting in browser…")
                                 } else {
                                     Text(integration(for: .supabase)?.state == .connected
                                         ? "Reconnect Supabase"

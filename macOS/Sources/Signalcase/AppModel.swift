@@ -443,8 +443,18 @@ final class AppModel: ObservableObject {
         showToast("Supabase disconnected")
     }
 
+    func cancelCloudAuthentication() {
+        cloud.cancelPendingBrowserFlow()
+    }
+
     func handleDeepLink(_ url: URL) {
-        cloud.handle(url)
+        Task {
+            if let email = await cloud.handle(url) {
+                cloudEmail = email
+                if linkedProjectURL != nil { await linkCloudProject() }
+                showToast("Signed in to Signalcase")
+            }
+        }
     }
 
     func importLogs() {
