@@ -21,8 +21,13 @@ final class AppModel: ObservableObject {
     @Published var lastSyncReport: SyncReport?
     @Published var ignoredFingerprints: [IgnoredFingerprint]
     @Published var deletedCases: [SignalCase]
+    @Published var automaticSyncEnabled: Bool
+    @Published var automaticSyncIntervalMinutes: Int
+    @Published var lastSuccessfulSyncBySource: [String: Date]
 
     private var receiver: LocalEventReceiver?
+    private var automaticSyncTask: Task<Void, Never>?
+    private var processedWebhookIDs: [String]
 
     init(cases suppliedCases: [SignalCase]? = nil) {
         let workspace = WorkspaceStore.load()
@@ -55,6 +60,12 @@ final class AppModel: ObservableObject {
         lastSyncReport = workspace.lastSyncReport
         ignoredFingerprints = workspace.ignoredFingerprints
         deletedCases = workspace.deletedCases
+        automaticSyncEnabled = workspace.automaticSyncEnabled
+        automaticSyncIntervalMinutes = workspace.automaticSyncIntervalMinutes
+        lastSuccessfulSyncBySource = workspace.lastSuccessfulSyncBySource
+        processedWebhookIDs = workspace.processedWebhookIDs.isEmpty
+            ? migratedEvents.compactMap(Self.webhookStoreKey)
+            : workspace.processedWebhookIDs
         isOnboardingPresented = !workspace.hasCompletedOnboarding
         integrations = [
             .init(source: .supabase, state: Self.connectionState(.supabase, configuration: workspace.configuration, events: migratedEvents), detail: "Auth, database and function logs"),
@@ -74,10 +85,15 @@ final class AppModel: ObservableObject {
                 lastSyncReport: workspace.lastSyncReport,
                 ignoredFingerprints: workspace.ignoredFingerprints,
                 deletedCases: workspace.deletedCases,
-                hasCompletedOnboarding: workspace.hasCompletedOnboarding
+                hasCompletedOnboarding: workspace.hasCompletedOnboarding,
+                automaticSyncEnabled: workspace.automaticSyncEnabled,
+                automaticSyncIntervalMinutes: workspace.automaticSyncIntervalMinutes,
+                lastSuccessfulSyncBySource: workspace.lastSuccessfulSyncBySource,
+                processedWebhookIDs: processedWebhookIDs
             ))
         }
         startReceiver()
+        restartAutomaticSync()
     }
 
     var filteredCases: [SignalCase] {
@@ -109,6 +125,12 @@ final class AppModel: ObservableObject {
 
     var availableSyncSources: Set<LogSource> {
         Set(integrations.filter { $0.state == .connected }.map(\.source))
+    }
+
+    private var configuredPullSources: Set<LogSource> {
+        Set([LogSource.supabase, .stripe, .render, .sentry].filter { source in
+            CredentialStore.load(source: source) != nil
+        })
     }
 
     func count(for filter: CaseFilter) -> Int {
@@ -150,13 +172,15 @@ final class AppModel: ObservableObject {
         showToast("Moved to \(next.title)")
     }
 
-    func syncRecentLogs(minutes: Int, sources: Set<LogSource>) async {
+    func syncRecentLogs(minutes: Int, sources: Set<LogSource>, automatic: Bool = false) async {
         guard !isCapturing else { return }
-        let requested = sources.intersection(availableSyncSources)
+        let requested = sources.intersection(automatic ? configuredPullSources : availableSyncSources)
         guard !requested.isEmpty else {
-            isCapturePresented = false
-            openSettings(.connections)
-            showToast("Connect at least one source first")
+            if !automatic {
+                isCapturePresented = false
+                openSettings(.connections)
+                showToast("Connect at least one source first")
+            }
             return
         }
         isCapturing = true
@@ -170,10 +194,13 @@ final class AppModel: ObservableObject {
         for source in requested.sorted(by: { $0.rawValue < $1.rawValue }) {
             updateIntegration(source, state: .syncing)
             do {
-                let batch = try await fetch(source: source, start: start, end: end)
+                let overlapStart = lastSuccessfulSyncBySource[source.rawValue]?.addingTimeInterval(-60)
+                let sourceStart = automatic ? max(start, overlapStart ?? start) : start
+                let batch = try await fetch(source: source, start: sourceStart, end: end)
                 incoming.append(contentsOf: batch.events)
                 unsupported.append(contentsOf: batch.unsupported)
                 updateIntegration(source, state: .connected, count: batch.events.count + batch.unsupported.count, error: nil)
+                lastSuccessfulSyncBySource[source.rawValue] = end
             } catch {
                 let message = "\(source.title): \(SecretRedactor.redact(error.localizedDescription))"
                 sourceErrors.append(message)
@@ -194,10 +221,12 @@ final class AppModel: ObservableObject {
         ingest(incoming)
         let failed = requested.filter { source in integrations.first(where: { $0.source == source })?.state == .failed }.count
         persist()
-        if incoming.isEmpty && unsupported.isEmpty {
-            showToast(failed > 0 ? "Sync finished with connection errors" : "No events found in that time window")
-        } else {
-            showToast(lastSyncReport?.summary ?? "Sync complete")
+        if !automatic {
+            if incoming.isEmpty && unsupported.isEmpty {
+                showToast(failed > 0 ? "Sync finished with connection errors" : "No events found in that time window")
+            } else {
+                showToast(lastSyncReport?.summary ?? "Sync complete")
+            }
         }
     }
 
@@ -208,6 +237,12 @@ final class AppModel: ObservableObject {
         signingSecret: String = ""
     ) async {
         do {
+            if source == .revenueCat || source == .application {
+                let hasSavedAuthorization = CredentialStore.load(source: source, kind: .authorizationHeader) != nil
+                guard hasSavedAuthorization || !authorizationHeader.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw ProviderError.invalidConfiguration("Add an authorization header before starting the receiver.")
+                }
+            }
             if !token.isEmpty { try CredentialStore.save(token, source: source, kind: .apiToken) }
             if !authorizationHeader.isEmpty { try CredentialStore.save(authorizationHeader, source: source, kind: .authorizationHeader) }
             if !signingSecret.isEmpty { try CredentialStore.save(signingSecret, source: source, kind: .signingSecret) }
@@ -231,8 +266,17 @@ final class AppModel: ObservableObject {
 
     func disconnect(_ source: LogSource) {
         CredentialStore.remove(source: source)
+        lastSuccessfulSyncBySource.removeValue(forKey: source.rawValue)
         updateIntegration(source, state: .disconnected, count: 0, error: nil)
+        persist()
         showToast("\(source.title) disconnected")
+    }
+
+    func updateAutomaticSync(enabled: Bool? = nil, intervalMinutes: Int? = nil) {
+        if let enabled { automaticSyncEnabled = enabled }
+        if let intervalMinutes { automaticSyncIntervalMinutes = max(5, intervalMinutes) }
+        persist()
+        restartAutomaticSync()
     }
 
     func deleteSelectedCase() {
@@ -294,6 +338,8 @@ final class AppModel: ObservableObject {
         deletedCases = []
         ignoredFingerprints = []
         lastSyncReport = nil
+        lastSuccessfulSyncBySource = [:]
+        processedWebhookIDs = []
         selectedCaseID = nil
         filter = .all
         persist()
@@ -445,6 +491,15 @@ final class AppModel: ObservableObject {
             onEvent: { [weak self] event in
                 Task { @MainActor in
                     guard let self else { return }
+                    if let key = Self.webhookStoreKey(event), self.processedWebhookIDs.contains(key) {
+                        return
+                    }
+                    if let key = Self.webhookStoreKey(event) {
+                        self.processedWebhookIDs.insert(key, at: 0)
+                        if self.processedWebhookIDs.count > 10_000 {
+                            self.processedWebhookIDs = Array(self.processedWebhookIDs.prefix(10_000))
+                        }
+                    }
                     let count = self.rawEvents.filter { $0.source == event.source }.count + 1
                     self.updateIntegration(event.source, state: .connected, count: count, error: nil)
                     self.ingest([event])
@@ -455,6 +510,27 @@ final class AppModel: ObservableObject {
         self.receiver = receiver
         do { try receiver.start(port: configuration.revenueCatPort) }
         catch { receiverStatus = "Receiver failed: \(error.localizedDescription)" }
+    }
+
+    private func restartAutomaticSync() {
+        automaticSyncTask?.cancel()
+        automaticSyncTask = nil
+        guard automaticSyncEnabled else { return }
+        let interval = max(5, automaticSyncIntervalMinutes)
+        automaticSyncTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(interval * 60)) }
+                catch { return }
+                guard let self else { return }
+                let pullSources = self.configuredPullSources
+                guard !pullSources.isEmpty else { continue }
+                await self.syncRecentLogs(
+                    minutes: max(15, interval * 2),
+                    sources: pullSources,
+                    automatic: true
+                )
+            }
+        }
     }
 
     private func updateIntegration(_ source: LogSource, state: IntegrationState, count: Int? = nil, error: String? = nil) {
@@ -474,7 +550,11 @@ final class AppModel: ObservableObject {
             lastSyncReport: lastSyncReport,
             ignoredFingerprints: ignoredFingerprints,
             deletedCases: deletedCases,
-            hasCompletedOnboarding: !isOnboardingPresented
+            hasCompletedOnboarding: !isOnboardingPresented,
+            automaticSyncEnabled: automaticSyncEnabled,
+            automaticSyncIntervalMinutes: automaticSyncIntervalMinutes,
+            lastSuccessfulSyncBySource: lastSuccessfulSyncBySource,
+            processedWebhookIDs: processedWebhookIDs
         )
         do { try WorkspaceStore.save(workspace) }
         catch { showToast("Could not save workspace: \(error.localizedDescription)") }
@@ -534,6 +614,12 @@ final class AppModel: ObservableObject {
     private static func eventStoreKey(_ event: LogEvent) -> String {
         event.externalID.map { "\(event.source.rawValue):external:\($0)" }
             ?? "\(event.source.rawValue):\(event.timestamp.timeIntervalSince1970):\(event.fingerprint)"
+    }
+
+    private static func webhookStoreKey(_ event: LogEvent) -> String? {
+        guard event.source == .revenueCat || event.source == .application,
+              let externalID = event.externalID else { return nil }
+        return "\(event.source.rawValue):\(externalID)"
     }
 
     private static func reclassifyPersistedCase(_ item: SignalCase) -> SignalCase? {

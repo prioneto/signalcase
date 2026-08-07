@@ -7,6 +7,13 @@ struct ProviderBatch {
     static let empty = ProviderBatch(events: [])
 }
 
+struct APIJSONResponse {
+    let payload: Any
+    let http: HTTPURLResponse
+
+    var linkHeader: String? { http.value(forHTTPHeaderField: "Link") }
+}
+
 enum ProviderError: LocalizedError {
     case invalidConfiguration(String)
     case invalidResponse
@@ -24,24 +31,86 @@ enum ProviderError: LocalizedError {
 }
 
 enum APIClient {
+    private static let retryableStatusCodes = Set([408, 425, 429, 500, 502, 503, 504])
+    private static let maximumAttempts = 4
+
     static func json(url: URL, headers: [String: String]) async throws -> Any {
+        try await response(url: url, headers: headers).payload
+    }
+
+    static func response(url: URL, headers: [String: String]) async throws -> APIJSONResponse {
         var request = URLRequest(url: url)
         request.timeoutInterval = 25
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("Signalcase/0.2", forHTTPHeaderField: "User-Agent")
         for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else { throw ProviderError.invalidResponse }
-        guard (200..<300).contains(http.statusCode) else {
-            throw ProviderError.requestFailed(http.statusCode, String(data: data.prefix(2_000), encoding: .utf8) ?? "Request failed")
+        var lastError: Error?
+        for attempt in 0..<maximumAttempts {
+            try Task.checkCancellation()
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard let http = response as? HTTPURLResponse else { throw ProviderError.invalidResponse }
+                if (200..<300).contains(http.statusCode) {
+                    let payload: Any = data.isEmpty ? [:] : try JSONSerialization.jsonObject(with: data)
+                    return APIJSONResponse(payload: payload, http: http)
+                }
+
+                let error = ProviderError.requestFailed(
+                    http.statusCode,
+                    String(data: data.prefix(2_000), encoding: .utf8) ?? "Request failed"
+                )
+                guard retryableStatusCodes.contains(http.statusCode), attempt + 1 < maximumAttempts else {
+                    throw error
+                }
+                lastError = error
+                try await Task.sleep(for: .milliseconds(retryDelayMilliseconds(response: http, attempt: attempt)))
+            } catch let error as URLError where isRetryable(error) && attempt + 1 < maximumAttempts {
+                lastError = error
+                try await Task.sleep(for: .milliseconds(retryDelayMilliseconds(response: nil, attempt: attempt)))
+            } catch {
+                throw error
+            }
         }
-        guard !data.isEmpty else { return [:] }
-        return try JSONSerialization.jsonObject(with: data)
+        throw lastError ?? ProviderError.invalidResponse
+    }
+
+    static func retryDelayMilliseconds(response: HTTPURLResponse?, attempt: Int, now: Date = Date()) -> Int64 {
+        if let value = response?.value(forHTTPHeaderField: "Retry-After") {
+            if let seconds = Double(value) { return Int64(min(max(seconds, 0), 30) * 1_000) }
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(secondsFromGMT: 0)
+            formatter.dateFormat = "EEE',' dd MMM yyyy HH':'mm':'ss z"
+            if let date = formatter.date(from: value) {
+                return Int64(min(max(date.timeIntervalSince(now), 0), 30) * 1_000)
+            }
+        }
+        if let value = response?.value(forHTTPHeaderField: "X-RateLimit-Reset"), let number = Double(value) {
+            let seconds = number > now.timeIntervalSince1970 ? number - now.timeIntervalSince1970 : number
+            return Int64(min(max(seconds, 0), 30) * 1_000)
+        }
+        let exponential = min(pow(2, Double(attempt)) * 500, 8_000)
+        let jitter = Double.random(in: 0...250)
+        return Int64(exponential + jitter)
+    }
+
+    private static func isRetryable(_ error: URLError) -> Bool {
+        switch error.code {
+        case .timedOut, .cannotFindHost, .cannotConnectToHost, .networkConnectionLost,
+             .dnsLookupFailed, .notConnectedToInternet, .internationalRoamingOff,
+             .callIsActive, .dataNotAllowed, .resourceUnavailable:
+            true
+        default:
+            false
+        }
     }
 }
 
 enum SupabaseProvider {
+    private static let pageSize = 500
+    private static let maximumPages = 50
+
     static func fetchBatch(
         configuration: ProviderConfiguration,
         token: String,
@@ -51,9 +120,8 @@ enum SupabaseProvider {
         guard !configuration.supabaseProjectRef.isEmpty else {
             throw ProviderError.invalidConfiguration("Enter the Supabase project reference.")
         }
-        guard !token.isEmpty else { throw ProviderError.invalidConfiguration("Enter a Supabase personal access token.") }
+        guard !token.isEmpty else { throw ProviderError.invalidConfiguration("Enter a Supabase OAuth access token or personal access token.") }
 
-        var components = URLComponents(string: "https://api.supabase.com/v1/projects/\(configuration.supabaseProjectRef)/analytics/endpoints/logs")!
         let sql = """
         select id,
                timestamp,
@@ -70,24 +138,46 @@ enum SupabaseProvider {
         from logs
         where source in ('edge_logs', 'postgres_logs', 'auth_logs', 'function_edge_logs', 'function_logs', 'storage_logs')
         order by timestamp desc
-        limit 500
+        limit \(pageSize)
         """
         let iso = ISO8601DateFormatter()
-        components.queryItems = [
-            .init(name: "sql", value: sql),
-            .init(name: "iso_timestamp_start", value: iso.string(from: start)),
-            .init(name: "iso_timestamp_end", value: iso.string(from: end))
-        ]
-        let payload = try await APIClient.json(url: components.url!, headers: ["Authorization": "Bearer \(token)"])
-        let events = normalize(payload)
-        return ProviderBatch(
-            events: events,
-            unsupported: unsupportedDiagnostics(
+        var cursorEnd = end
+        var allEvents: [LogEvent] = []
+        var allUnsupported: [EventDiagnostic] = []
+        var seen = Set<String>()
+
+        for _ in 0..<maximumPages {
+            var components = URLComponents(string: "https://api.supabase.com/v1/projects/\(configuration.supabaseProjectRef)/analytics/endpoints/logs")!
+            components.queryItems = [
+                .init(name: "sql", value: sql),
+                .init(name: "iso_timestamp_start", value: iso.string(from: start)),
+                .init(name: "iso_timestamp_end", value: iso.string(from: cursorEnd))
+            ]
+            let payload = try await APIClient.json(url: components.url!, headers: ["Authorization": "Bearer \(token)"])
+            let rawRows = rows(from: payload)
+            let pageEvents = normalize(payload)
+            allUnsupported.append(contentsOf: unsupportedDiagnostics(
                 payload: payload,
-                normalizedCount: events.count,
+                normalizedCount: pageEvents.count,
                 source: .supabase,
                 reason: "The Supabase row did not include the standard event_message fields Signalcase understands."
-            )
+            ))
+            for event in pageEvents {
+                let key = event.externalID ?? "\(event.timestamp.timeIntervalSince1970):\(event.fingerprint)"
+                if seen.insert(key).inserted { allEvents.append(event) }
+            }
+
+            guard rawRows.count >= pageSize,
+                  let oldest = rawRows.compactMap({ DateParser.parse($0["timestamp"]) }).min(),
+                  oldest > start else { break }
+            let nextEnd = oldest.addingTimeInterval(-0.001)
+            guard nextEnd < cursorEnd else { break }
+            cursorEnd = nextEnd
+        }
+
+        return ProviderBatch(
+            events: allEvents,
+            unsupported: allUnsupported
         )
     }
 
@@ -213,6 +303,9 @@ enum SupabaseProvider {
 }
 
 enum SentryProvider {
+    private static let pageSize = 100
+    private static let maximumPages = 50
+
     static func fetchBatch(
         configuration: ProviderConfiguration,
         token: String,
@@ -234,18 +327,27 @@ enum SentryProvider {
         }
         guard !token.isEmpty else { throw ProviderError.invalidConfiguration("Enter a Sentry token with event:read.") }
         let base = configuration.sentryBaseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        var components = URLComponents(string: "\(base)/api/0/projects/\(configuration.sentryOrganization)/\(configuration.sentryProject)/issues/")!
+        var components = URLComponents(string: "\(base)/api/0/organizations/\(configuration.sentryOrganization)/issues/")!
         components.queryItems = [
             .init(name: "query", value: "lastSeen:>\(ISO8601DateFormatter().string(from: start))"),
             .init(name: "sort", value: "date"),
             .init(name: "statsPeriod", value: "24h"),
-            .init(name: "limit", value: "30")
+            .init(name: "project", value: configuration.sentryProject),
+            .init(name: "limit", value: "\(pageSize)")
         ]
-        let issuesPayload = try await APIClient.json(url: components.url!, headers: ["Authorization": "Bearer \(token)"])
-        let issues = rows(from: issuesPayload)
+        var pageURL: URL? = components.url
+        var issues: [[String: Any]] = []
+
+        for _ in 0..<maximumPages {
+            guard let currentURL = pageURL else { break }
+            let response = try await APIClient.response(url: currentURL, headers: ["Authorization": "Bearer \(token)"])
+            issues.append(contentsOf: rows(from: response.payload))
+            pageURL = nextPageURL(linkHeader: response.linkHeader)
+        }
+
         var events: [LogEvent] = []
 
-        for issue in issues.prefix(20) {
+        for issue in issues {
             guard let issueID = string(issue, "id") else { continue }
             let latestURL = URL(string: "\(base)/api/0/organizations/\(configuration.sentryOrganization)/issues/\(issueID)/events/latest/")!
             if let latest = try? await APIClient.json(url: latestURL, headers: ["Authorization": "Bearer \(token)"]),
@@ -257,6 +359,17 @@ enum SentryProvider {
             }
         }
         return events.filter { $0.timestamp >= start && $0.timestamp <= end.addingTimeInterval(60) }
+    }
+
+    static func nextPageURL(linkHeader: String?) -> URL? {
+        guard let linkHeader else { return nil }
+        for component in linkHeader.split(separator: ",") {
+            let value = String(component)
+            guard value.contains(#"rel="next""#), value.contains(#"results="true""#),
+                  let start = value.firstIndex(of: "<"), let end = value[start...].firstIndex(of: ">") else { continue }
+            return URL(string: String(value[value.index(after: start)..<end]))
+        }
+        return nil
     }
 
     static func normalizeIssue(_ issue: [String: Any]) -> LogEvent? {
@@ -336,10 +449,13 @@ enum SentryProvider {
 }
 
 enum StripeProvider {
+    private static let pageSize = 100
+    private static let maximumPages = 50
+
     static func fetchBatch(token: String, start: Date, end: Date) async throws -> ProviderBatch {
         guard !token.isEmpty else { throw ProviderError.invalidConfiguration("Enter a restricted Stripe key with read access to Events.") }
-        async let allPayload = request(token: token, start: start, end: end, failuresOnly: false)
-        async let failedPayload = request(token: token, start: start, end: end, failuresOnly: true)
+        async let allPayload = requestAll(token: token, start: start, end: end, failuresOnly: false)
+        async let failedPayload = requestAll(token: token, start: start, end: end, failuresOnly: true)
         let (all, failed) = try await (allPayload, failedPayload)
         let failedIDs = Set(rows(from: failed).compactMap { string($0, "id") })
         let events = normalize(all, failedDeliveryIDs: failedIDs)
@@ -358,16 +474,35 @@ enum StripeProvider {
         try await fetchBatch(token: token, start: start, end: end).events
     }
 
-    private static func request(token: String, start: Date, end: Date, failuresOnly: Bool) async throws -> Any {
-        var components = URLComponents(string: "https://api.stripe.com/v1/events")!
-        var items: [URLQueryItem] = [
-            .init(name: "created[gte]", value: "\(Int(start.timeIntervalSince1970))"),
-            .init(name: "created[lte]", value: "\(Int(end.timeIntervalSince1970))"),
-            .init(name: "limit", value: "100")
-        ]
-        if failuresOnly { items.append(.init(name: "delivery_success", value: "false")) }
-        components.queryItems = items
-        return try await APIClient.json(url: components.url!, headers: ["Authorization": "Bearer \(token)"])
+    private static func requestAll(token: String, start: Date, end: Date, failuresOnly: Bool) async throws -> Any {
+        var collected: [[String: Any]] = []
+        var cursor: String?
+
+        for _ in 0..<maximumPages {
+            var components = URLComponents(string: "https://api.stripe.com/v1/events")!
+            var items: [URLQueryItem] = [
+                .init(name: "created[gte]", value: "\(Int(start.timeIntervalSince1970))"),
+                .init(name: "created[lte]", value: "\(Int(end.timeIntervalSince1970))"),
+                .init(name: "limit", value: "\(pageSize)")
+            ]
+            if failuresOnly { items.append(.init(name: "delivery_success", value: "false")) }
+            if let cursor { items.append(.init(name: "starting_after", value: cursor)) }
+            components.queryItems = items
+
+            let payload = try await APIClient.json(url: components.url!, headers: ["Authorization": "Bearer \(token)"])
+            let page = rows(from: payload)
+            collected.append(contentsOf: page)
+            guard nextCursor(payload: payload) != nil,
+                  let next = page.last.flatMap({ string($0, "id") }),
+                  next != cursor else { break }
+            cursor = next
+        }
+        return ["data": collected]
+    }
+
+    static func nextCursor(payload: Any) -> String? {
+        guard let dictionary = payload as? [String: Any], bool(dictionary["has_more"]) == true else { return nil }
+        return rows(from: payload).last.flatMap { string($0, "id") }
     }
 
     static func normalize(_ payload: Any, failedDeliveryIDs: Set<String> = []) -> [LogEvent] {
@@ -410,6 +545,14 @@ enum StripeProvider {
 }
 
 enum RenderProvider {
+    struct LogPageCursor: Equatable {
+        let startTime: String
+        let endTime: String
+    }
+
+    private static let pageSize = 100
+    private static let maximumPages = 50
+
     static func fetchBatch(
         configuration: ProviderConfiguration,
         token: String,
@@ -425,47 +568,74 @@ enum RenderProvider {
         }
         guard !token.isEmpty else { throw ProviderError.invalidConfiguration("Enter a Render API key.") }
 
-        var logComponents = URLComponents(string: "https://api.render.com/v1/logs")!
-        var items: [URLQueryItem] = [
-            .init(name: "ownerId", value: configuration.renderOwnerID),
-            .init(name: "startTime", value: ISO8601DateFormatter().string(from: start)),
-            .init(name: "endTime", value: ISO8601DateFormatter().string(from: end)),
-            .init(name: "direction", value: "forward"),
-            .init(name: "limit", value: "100")
-        ]
-        items.append(contentsOf: resources.map { .init(name: "resource", value: $0) })
-        logComponents.queryItems = items
-        let logURL = logComponents.url!
-        async let logPayload = APIClient.json(url: logURL, headers: ["Authorization": "Bearer \(token)"])
-
+        let iso = ISO8601DateFormatter()
+        var logEvents: [LogEvent] = []
         var deployEvents: [LogEvent] = []
         var unsupported: [EventDiagnostic] = []
-        for resource in resources {
-            var deployComponents = URLComponents(string: "https://api.render.com/v1/services/\(resource)/deploys")!
-            deployComponents.queryItems = [
-                .init(name: "createdAfter", value: ISO8601DateFormatter().string(from: start.addingTimeInterval(-1_800))),
-                .init(name: "limit", value: "20")
+
+        var logStart = iso.string(from: start)
+        var logEnd = iso.string(from: end)
+        var previousLogCursor: LogPageCursor?
+        for _ in 0..<maximumPages {
+            var logComponents = URLComponents(string: "https://api.render.com/v1/logs")!
+            var items: [URLQueryItem] = [
+                .init(name: "ownerId", value: configuration.renderOwnerID),
+                .init(name: "startTime", value: logStart),
+                .init(name: "endTime", value: logEnd),
+                .init(name: "direction", value: "forward"),
+                .init(name: "limit", value: "\(pageSize)")
             ]
-            if let payload = try? await APIClient.json(url: deployComponents.url!, headers: ["Authorization": "Bearer \(token)"]) {
-                let normalized = normalizeDeploys(payload, resourceID: resource)
-                deployEvents.append(contentsOf: normalized)
-                unsupported.append(contentsOf: unsupportedDiagnostics(
-                    payload: payload,
-                    normalizedCount: normalized.count,
+            items.append(contentsOf: resources.map { .init(name: "resource", value: $0) })
+            logComponents.queryItems = items
+            let payload = try await APIClient.json(url: logComponents.url!, headers: ["Authorization": "Bearer \(token)"])
+            let normalized = normalizeLogs(payload)
+            logEvents.append(contentsOf: normalized)
+            unsupported.append(contentsOf: unsupportedDiagnostics(
+                payload: payload,
+                normalizedCount: normalized.count,
+                source: .render,
+                reason: "The Render log record did not contain a message field."
+            ))
+            guard let cursor = logPageCursor(payload: payload), cursor != previousLogCursor else { break }
+            previousLogCursor = cursor
+            logStart = cursor.startTime
+            logEnd = cursor.endTime
+        }
+
+        for resource in resources {
+            var cursor: String?
+            do {
+                for _ in 0..<maximumPages {
+                    var deployComponents = URLComponents(string: "https://api.render.com/v1/services/\(resource)/deploys")!
+                    var queryItems: [URLQueryItem] = [
+                        .init(name: "createdAfter", value: iso.string(from: start.addingTimeInterval(-1_800))),
+                        .init(name: "limit", value: "\(pageSize)")
+                    ]
+                    if let cursor { queryItems.append(.init(name: "cursor", value: cursor)) }
+                    deployComponents.queryItems = queryItems
+                    let payload = try await APIClient.json(url: deployComponents.url!, headers: ["Authorization": "Bearer \(token)"])
+                    let normalized = normalizeDeploys(payload, resourceID: resource)
+                    deployEvents.append(contentsOf: normalized)
+                    unsupported.append(contentsOf: unsupportedDiagnostics(
+                        payload: payload,
+                        normalizedCount: normalized.count,
+                        source: .render,
+                        reason: "The Render deploy record was missing its deploy ID."
+                    ))
+                    guard let next = deployPageCursor(payload: payload), next != cursor else { break }
+                    cursor = next
+                }
+            } catch {
+                unsupported.append(EventDiagnostic(
                     source: .render,
-                    reason: "The Render deploy record was missing its deploy ID."
+                    disposition: .unsupported,
+                    title: "Deploy history unavailable",
+                    detail: resource,
+                    reason: SecretRedactor.redact(error.localizedDescription)
                 ))
             }
         }
-        let payload = try await logPayload
-        let logs = normalizeLogs(payload)
-        unsupported.append(contentsOf: unsupportedDiagnostics(
-            payload: payload,
-            normalizedCount: logs.count,
-            source: .render,
-            reason: "The Render log record did not contain a message field."
-        ))
-        return ProviderBatch(events: logs + deployEvents, unsupported: unsupported)
+        return ProviderBatch(events: deduplicate(logEvents + deployEvents), unsupported: unsupported)
     }
 
     static func fetch(
@@ -524,6 +694,26 @@ enum RenderProvider {
                 fingerprint: "render:deploy:\(id)",
                 metadata: ["resource": resourceID, "status": status]
             )
+        }
+    }
+
+    static func logPageCursor(payload: Any) -> LogPageCursor? {
+        guard let dictionary = payload as? [String: Any], bool(dictionary["hasMore"]) == true,
+              let start = string(dictionary, "nextStartTime"), let end = string(dictionary, "nextEndTime") else { return nil }
+        return LogPageCursor(startTime: start, endTime: end)
+    }
+
+    static func deployPageCursor(payload: Any) -> String? {
+        let page = rows(from: payload)
+        guard page.count >= pageSize else { return nil }
+        return page.last.flatMap { string($0, "cursor") }
+    }
+
+    private static func deduplicate(_ events: [LogEvent]) -> [LogEvent] {
+        var seen = Set<String>()
+        return events.filter { event in
+            let key = event.externalID ?? "\(event.timestamp.timeIntervalSince1970):\(event.fingerprint)"
+            return seen.insert(key).inserted
         }
     }
 }

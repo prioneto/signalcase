@@ -5,3 +5,5 @@ website/.next/
 website/node_modules/
 website/npm-debug.log*
 
+website/.env.local
+website/.env.*.local

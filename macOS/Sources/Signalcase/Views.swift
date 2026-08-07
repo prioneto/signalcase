@@ -1019,6 +1019,59 @@ private struct GeneralSettingsView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 9) {
+                    Text("AUTOMATIC SYNC").sectionLabel()
+                    VStack(spacing: 0) {
+                        HStack(spacing: 13) {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(SignalTheme.blue)
+                                .frame(width: 28, height: 28)
+                                .background(SignalTheme.blue.opacity(0.09), in: RoundedRectangle(cornerRadius: 8))
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Keep connected logs current")
+                                    .font(.system(size: 11.5, weight: .semibold))
+                                Text("Only checks new activity while Signalcase is open")
+                                    .font(.system(size: 9.5))
+                                    .foregroundStyle(SignalTheme.muted)
+                            }
+                            Spacer()
+                            Toggle("", isOn: Binding(
+                                get: { model.automaticSyncEnabled },
+                                set: { model.updateAutomaticSync(enabled: $0) }
+                            ))
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                        }
+                        .padding(.horizontal, 14)
+                        .frame(minHeight: 64)
+
+                        if model.automaticSyncEnabled {
+                            rowDivider
+                            HStack {
+                                Text("Check every")
+                                    .font(.system(size: 10.5, weight: .medium))
+                                Spacer()
+                                Picker("Check every", selection: Binding(
+                                    get: { model.automaticSyncIntervalMinutes },
+                                    set: { model.updateAutomaticSync(intervalMinutes: $0) }
+                                )) {
+                                    Text("5 min").tag(5)
+                                    Text("15 min").tag(15)
+                                    Text("30 min").tag(30)
+                                    Text("60 min").tag(60)
+                                }
+                                .labelsHidden()
+                                .pickerStyle(.segmented)
+                                .frame(width: 260)
+                            }
+                            .padding(.horizontal, 14)
+                            .frame(height: 52)
+                        }
+                    }
+                    .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 12))
+                }
+
+                VStack(alignment: .leading, spacing: 9) {
                     Text("HELP").sectionLabel()
                     VStack(spacing: 0) {
                         settingsRow(
@@ -1198,8 +1251,8 @@ private struct ConnectionsSettingsView: View {
         switch selectedSource {
         case .supabase:
             setupField("PROJECT REFERENCE", "abcdefghijklmno", text: $model.configuration.supabaseProjectRef)
-            secretField("PERSONAL ACCESS TOKEN", "sbp_…", text: $token)
-            help("Create a Personal Access Token in Supabase account settings. It is used only with the Management API logs endpoint.")
+            secretField("SUPABASE ACCESS TOKEN", "OAuth access token or sbp_…", text: $token)
+            help("Accepts a Supabase OAuth access token. Personal Access Tokens remain available for local testing until the hosted OAuth callback is configured.")
         case .sentry:
             setupField("ORGANIZATION SLUG", "my-team", text: $model.configuration.sentryOrganization)
             setupField("PROJECT SLUG", "my-app", text: $model.configuration.sentryProject)
@@ -1215,12 +1268,12 @@ private struct ConnectionsSettingsView: View {
         case .revenueCat:
             endpointCard("POST http://localhost:\(model.configuration.revenueCatPort)/revenuecat")
             setupNumberField("RECEIVER PORT", value: $model.configuration.revenueCatPort)
-            secretField("OPTIONAL AUTHORIZATION HEADER", "Bearer …", text: $authorizationHeader)
+            secretField("REQUIRED AUTHORIZATION HEADER", "Bearer …", text: $authorizationHeader)
             secretField("OPTIONAL SIGNING SECRET", "Webhook HMAC secret", text: $signingSecret)
-            help("RevenueCat must reach this Mac. For remote webhooks, expose the local endpoint with a secure tunnel. Historical RevenueCat logs are not fetched automatically.")
+            help("Use the same authorization value in RevenueCat. HMAC signing adds replay protection. A secure tunnel can forward to this loopback-only receiver.")
         case .application:
             endpointCard("POST http://localhost:\(model.configuration.revenueCatPort)/events")
-            secretField("OPTIONAL AUTHORIZATION HEADER", "Bearer …", text: $authorizationHeader)
+            secretField("REQUIRED AUTHORIZATION HEADER", "Bearer …", text: $authorizationHeader)
             help("Send structured JSON with timestamp, level, title, message, request_id, user_id, release, and route. The request ID is what connects services exactly.")
         }
     }

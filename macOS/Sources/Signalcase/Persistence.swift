@@ -9,6 +9,10 @@ struct PersistedWorkspace: Codable {
     var ignoredFingerprints: [IgnoredFingerprint]
     var deletedCases: [SignalCase]
     var hasCompletedOnboarding: Bool
+    var automaticSyncEnabled: Bool
+    var automaticSyncIntervalMinutes: Int
+    var lastSuccessfulSyncBySource: [String: Date]
+    var processedWebhookIDs: [String]
 
     init(
         cases: [SignalCase],
@@ -18,7 +22,11 @@ struct PersistedWorkspace: Codable {
         lastSyncReport: SyncReport? = nil,
         ignoredFingerprints: [IgnoredFingerprint] = [],
         deletedCases: [SignalCase] = [],
-        hasCompletedOnboarding: Bool = false
+        hasCompletedOnboarding: Bool = false,
+        automaticSyncEnabled: Bool = false,
+        automaticSyncIntervalMinutes: Int = 5,
+        lastSuccessfulSyncBySource: [String: Date] = [:],
+        processedWebhookIDs: [String] = []
     ) {
         self.cases = cases
         self.events = events
@@ -28,10 +36,16 @@ struct PersistedWorkspace: Codable {
         self.ignoredFingerprints = ignoredFingerprints
         self.deletedCases = deletedCases
         self.hasCompletedOnboarding = hasCompletedOnboarding
+        self.automaticSyncEnabled = automaticSyncEnabled
+        self.automaticSyncIntervalMinutes = automaticSyncIntervalMinutes
+        self.lastSuccessfulSyncBySource = lastSuccessfulSyncBySource
+        self.processedWebhookIDs = processedWebhookIDs
     }
 
     private enum CodingKeys: String, CodingKey {
         case cases, events, configuration, projectPath, lastSyncReport, ignoredFingerprints, deletedCases, hasCompletedOnboarding
+        case automaticSyncEnabled, automaticSyncIntervalMinutes, lastSuccessfulSyncBySource
+        case processedWebhookIDs
     }
 
     init(from decoder: Decoder) throws {
@@ -44,6 +58,10 @@ struct PersistedWorkspace: Codable {
         ignoredFingerprints = try values.decodeIfPresent([IgnoredFingerprint].self, forKey: .ignoredFingerprints) ?? []
         deletedCases = try values.decodeIfPresent([SignalCase].self, forKey: .deletedCases) ?? []
         hasCompletedOnboarding = try values.decodeIfPresent(Bool.self, forKey: .hasCompletedOnboarding) ?? false
+        automaticSyncEnabled = try values.decodeIfPresent(Bool.self, forKey: .automaticSyncEnabled) ?? false
+        automaticSyncIntervalMinutes = max(5, try values.decodeIfPresent(Int.self, forKey: .automaticSyncIntervalMinutes) ?? 5)
+        lastSuccessfulSyncBySource = try values.decodeIfPresent([String: Date].self, forKey: .lastSuccessfulSyncBySource) ?? [:]
+        processedWebhookIDs = try values.decodeIfPresent([String].self, forKey: .processedWebhookIDs) ?? []
     }
 
     static let empty = PersistedWorkspace(cases: [], events: [], configuration: .empty, projectPath: nil)

@@ -1,4 +1,5 @@
 import XCTest
+import CryptoKit
 @testable import Signalcase
 
 final class SignalcaseTests: XCTestCase {
@@ -271,6 +272,89 @@ final class SignalcaseTests: XCTestCase {
         XCTAssertEqual(event.userID, "usr_42")
     }
 
+    func testRevenueCatSignatureRequiresFreshConstantTimeMatch() throws {
+        let now = Date(timeIntervalSince1970: 1_786_000_000)
+        let body = Data(#"{"event":{"id":"rc_evt_1"}}"#.utf8)
+        let secret = "whsec_test"
+        let timestamp = String(Int(now.timeIntervalSince1970))
+        var signed = Data("\(timestamp).".utf8)
+        signed.append(body)
+        let signature = Data(HMAC<SHA256>.authenticationCode(
+            for: signed,
+            using: SymmetricKey(data: Data(secret.utf8))
+        )).map { String(format: "%02x", $0) }.joined()
+
+        XCTAssertNoThrow(try WebhookSecurity.verifyRevenueCatSignature(
+            header: "t=\(timestamp),v1=\(signature)",
+            body: body,
+            secret: secret,
+            now: now
+        ))
+        XCTAssertThrowsError(try WebhookSecurity.verifyRevenueCatSignature(
+            header: "t=\(timestamp),v1=\(String(repeating: "0", count: 64))",
+            body: body,
+            secret: secret,
+            now: now
+        ))
+        XCTAssertThrowsError(try WebhookSecurity.verifyRevenueCatSignature(
+            header: "t=\(timestamp),v1=\(signature),v1=\(signature)",
+            body: body,
+            secret: secret,
+            now: now
+        ))
+        XCTAssertThrowsError(try WebhookSecurity.verifyRevenueCatSignature(
+            header: "t=\(timestamp),v1=\(signature)",
+            body: body,
+            secret: secret,
+            now: now.addingTimeInterval(301)
+        ))
+    }
+
+    func testReceiverAuthorizationIsMandatory() {
+        XCTAssertThrowsError(try WebhookSecurity.verifyAuthorization(received: nil, expected: nil))
+        XCTAssertThrowsError(try WebhookSecurity.verifyAuthorization(received: "Bearer wrong", expected: "Bearer right"))
+        XCTAssertNoThrow(try WebhookSecurity.verifyAuthorization(received: "Bearer right", expected: "Bearer right"))
+    }
+
+    func testProviderPaginationContracts() throws {
+        let stripe: [String: Any] = [
+            "has_more": true,
+            "data": [["id": "evt_1"], ["id": "evt_2"]]
+        ]
+        XCTAssertEqual(StripeProvider.nextCursor(payload: stripe), "evt_2")
+
+        let renderLogs: [String: Any] = [
+            "hasMore": true,
+            "nextStartTime": "2026-08-06T10:01:00Z",
+            "nextEndTime": "2026-08-06T10:02:00Z",
+            "logs": []
+        ]
+        XCTAssertEqual(
+            RenderProvider.logPageCursor(payload: renderLogs),
+            RenderProvider.LogPageCursor(startTime: "2026-08-06T10:01:00Z", endTime: "2026-08-06T10:02:00Z")
+        )
+
+        let renderDeploys = (0..<100).map { ["cursor": "cursor_\($0)", "deploy": ["id": "dep_\($0)"]] }
+        XCTAssertEqual(RenderProvider.deployPageCursor(payload: renderDeploys), "cursor_99")
+
+        let link = #"<https://sentry.io/api/0/organizations/acme/issues/?cursor=previous>; rel="previous"; results="false", <https://sentry.io/api/0/organizations/acme/issues/?cursor=next>; rel="next"; results="true""#
+        XCTAssertEqual(
+            SentryProvider.nextPageURL(linkHeader: link)?.absoluteString,
+            "https://sentry.io/api/0/organizations/acme/issues/?cursor=next"
+        )
+    }
+
+    func testRetryDelayHonorsProviderHeaders() throws {
+        let url = try XCTUnwrap(URL(string: "https://example.com"))
+        let response = try XCTUnwrap(HTTPURLResponse(
+            url: url,
+            statusCode: 429,
+            httpVersion: nil,
+            headerFields: ["Retry-After": "3"]
+        ))
+        XCTAssertEqual(APIClient.retryDelayMilliseconds(response: response, attempt: 0), 3_000)
+    }
+
     func testExactRequestIDBuildsCrossSourceCase() {
         let now = Date()
         let events = [
@@ -458,6 +542,10 @@ final class SignalcaseTests: XCTestCase {
         json.removeValue(forKey: "ignoredFingerprints")
         json.removeValue(forKey: "deletedCases")
         json.removeValue(forKey: "hasCompletedOnboarding")
+        json.removeValue(forKey: "automaticSyncEnabled")
+        json.removeValue(forKey: "automaticSyncIntervalMinutes")
+        json.removeValue(forKey: "lastSuccessfulSyncBySource")
+        json.removeValue(forKey: "processedWebhookIDs")
         let legacyData = try JSONSerialization.data(withJSONObject: json)
 
         let decoded = try JSONDecoder().decode(PersistedWorkspace.self, from: legacyData)
@@ -466,5 +554,9 @@ final class SignalcaseTests: XCTestCase {
         XCTAssertTrue(decoded.ignoredFingerprints.isEmpty)
         XCTAssertTrue(decoded.deletedCases.isEmpty)
         XCTAssertFalse(decoded.hasCompletedOnboarding)
+        XCTAssertFalse(decoded.automaticSyncEnabled)
+        XCTAssertEqual(decoded.automaticSyncIntervalMinutes, 5)
+        XCTAssertTrue(decoded.lastSuccessfulSyncBySource.isEmpty)
+        XCTAssertTrue(decoded.processedWebhookIDs.isEmpty)
     }
 }

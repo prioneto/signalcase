@@ -16,9 +16,10 @@ The packaged app is created at `macOS/.build/Signalcase.app`.
 Try these flows:
 
 - Open **Integrations** and save a provider credential. Signalcase only makes read requests, and tokens are stored in macOS Keychain rather than the workspace file. Prefer the narrowest provider permissions available.
-- Click **Sync recent logs**, choose connected sources and a window, then let Signalcase detect cases.
+- Click **Sync recent logs**, choose connected sources and a window, then let Signalcase detect cases. Provider pages and temporary rate limits are handled automatically.
+- Enable **Automatic sync** in Settings to incrementally check connected pull-based sources every 5, 15, 30, or 60 minutes while Signalcase is open.
 - Import a JSON, JSONL, or plain-text log file from the sync sheet.
-- Advance a case from New → Triaged → Fixing → Verified.
+- Advance a case from New → Reviewed → Fixing → Verified.
 
 ### Sources
 
@@ -26,14 +27,15 @@ Try these flows:
 - **Stripe:** a restricted key with Events read access. Events and unsuccessful webhook deliveries from the selected window are read.
 - **Render:** workspace owner ID, service IDs, and an API key. Service logs and deploys are read.
 - **Sentry:** organization/project slugs and an `event:read` token. Recent issues and their latest event are read.
-- **RevenueCat:** configure its webhook to send to `POST /revenuecat` on the receiver shown in the app. A secure tunnel or future hosted relay is required when RevenueCat cannot reach your Mac directly.
-- **Application:** send structured JSON to `POST /events` on the same receiver.
+- **RevenueCat:** configure its webhook to send to `POST /revenuecat` on the receiver shown in the app. Configure the same required Authorization header on both sides; HMAC signing is also supported with a five-minute replay window.
+- **Application:** send structured JSON to `POST /events` on the same receiver with the required Authorization header.
 
 Example local application event:
 
 ```bash
 curl -X POST http://localhost:9782/events \
   -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer replace-with-your-receiver-secret' \
   -d '{"timestamp":"2026-08-05T00:25:42Z","level":"error","title":"ProfileBootstrapError","message":"permission denied for table profiles","request_id":"req_17","user_id":"usr_42","release":"28cc04","route":"GET /profiles"}'
 ```
 
