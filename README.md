@@ -15,7 +15,9 @@ The packaged app is created at `macOS/.build/Signalcase.app`.
 
 Try these flows:
 
-- Open **Integrations** and save a provider credential. Signalcase only makes read requests, and tokens are stored in macOS Keychain rather than the workspace file. Prefer the narrowest provider permissions available.
+- In onboarding or Settings, sign in with GitHub and select the local project folder. This links the Mac folder to the team's Signalcase project.
+- Open **Connections**, enter the Supabase project reference, and click **Connect Supabase**. Authorization happens in a native macOS authentication sheet. The resulting provider tokens are encrypted on the server and are never saved in the app.
+- Other provider credentials currently use macOS Keychain. Prefer the narrowest read-only permissions available.
 - Click **Sync recent logs**, choose connected sources and a window, then let Signalcase detect cases. Provider pages and temporary rate limits are handled automatically.
 - Enable **Automatic sync** in Settings to incrementally check connected pull-based sources every 5, 15, 30, or 60 minutes while Signalcase is open.
 - Import a JSON, JSONL, or plain-text log file from the sync sheet.
@@ -23,7 +25,7 @@ Try these flows:
 
 ### Sources
 
-- **Supabase:** project reference plus a Personal Access Token. Signalcase queries the current Management API unified `logs` endpoint.
+- **Supabase:** Management OAuth with the `analytics:read` scope. Signalcase queries the current Management API unified `logs` endpoint through its server.
 - **Stripe:** a restricted key with Events read access. Events and unsuccessful webhook deliveries from the selected window are read.
 - **Render:** workspace owner ID, service IDs, and an API key. Service logs and deploys are read.
 - **Sentry:** organization/project slugs and an `event:read` token. Recent issues and their latest event are read.
@@ -51,6 +53,8 @@ npm run dev
 
 Open [http://localhost:3002](http://localhost:3002).
 
+The server needs the values listed in `website/.env.example` before account linking or Supabase OAuth can work. See [Production setup](docs/PRODUCTION_SETUP.md) for the exact Supabase, Vercel, and native build steps.
+
 ## Current boundary
 
-The macOS receiver works while Signalcase is open. It is suitable for local testing; a hosted, authenticated collector is still needed for reliable always-on RevenueCat and application ingestion. Provider retention and API limits still apply, and RevenueCat history is collected from new webhooks rather than fetched retroactively.
+The macOS receiver works while Signalcase is open. Supabase pull-based sync now uses the hosted authenticated server, but an always-on hosted collector is still needed for reliable RevenueCat and application webhook ingestion. Render, Stripe, and Sentry still use local Keychain credentials. Provider retention and API limits still apply, and RevenueCat history is collected from new webhooks rather than fetched retroactively.

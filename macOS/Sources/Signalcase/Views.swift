@@ -991,6 +991,19 @@ private struct GeneralSettingsView: View {
                     Text("WORKSPACE").sectionLabel()
                     VStack(spacing: 0) {
                         settingsRow(
+                            icon: model.isSignedIn ? "person.crop.circle.fill.badge.checkmark" : "person.crop.circle",
+                            tint: model.isSignedIn ? SignalTheme.lime : SignalTheme.muted,
+                            title: model.cloudEmail ?? "Signalcase account",
+                            detail: model.isSignedIn ? "Signed in · team connections are available" : "Sign in to connect team services securely",
+                            actionTitle: model.isSignedIn ? "Sign out" : "Sign in"
+                        ) {
+                            Task {
+                                if model.isSignedIn { await model.signOutOfSignalcase() }
+                                else { await model.signInToSignalcase() }
+                            }
+                        }
+                        rowDivider
+                        settingsRow(
                             icon: "folder.fill",
                             tint: SignalTheme.lime,
                             title: model.projectName,
@@ -1209,19 +1222,35 @@ private struct ConnectionsSettingsView: View {
                                 .buttonStyle(QuietButtonStyle())
                         }
                         Spacer()
-                        Button {
-                            Task {
-                                await model.saveConnection(
-                                    source: selectedSource,
-                                    token: token,
-                                    authorizationHeader: authorizationHeader,
-                                    signingSecret: signingSecret
-                                )
+                        if selectedSource == .supabase {
+                            Button {
+                                Task { await model.connectSupabase() }
+                            } label: {
+                                if model.isCloudBusy {
+                                    ProgressView().controlSize(.small)
+                                } else {
+                                    Text(integration(for: .supabase)?.state == .connected
+                                        ? "Reconnect Supabase"
+                                        : (model.isSignedIn ? "Connect Supabase" : "Sign in & connect"))
+                                }
                             }
-                        } label: {
-                            Text(selectedSource == .revenueCat || selectedSource == .application ? "Start receiver" : "Save & test")
+                            .buttonStyle(PrimaryButtonStyle())
+                            .disabled(model.isCloudBusy)
+                        } else {
+                            Button {
+                                Task {
+                                    await model.saveConnection(
+                                        source: selectedSource,
+                                        token: token,
+                                        authorizationHeader: authorizationHeader,
+                                        signingSecret: signingSecret
+                                    )
+                                }
+                            } label: {
+                                Text(selectedSource == .revenueCat || selectedSource == .application ? "Start receiver" : "Save & test")
+                            }
+                            .buttonStyle(PrimaryButtonStyle())
                         }
-                        .buttonStyle(PrimaryButtonStyle())
                     }
                 }
                 .padding(16)
@@ -1251,8 +1280,7 @@ private struct ConnectionsSettingsView: View {
         switch selectedSource {
         case .supabase:
             setupField("PROJECT REFERENCE", "abcdefghijklmno", text: $model.configuration.supabaseProjectRef)
-            secretField("SUPABASE ACCESS TOKEN", "OAuth access token or sbp_…", text: $token)
-            help("Accepts a Supabase OAuth access token. Personal Access Tokens remain available for local testing until the hosted OAuth callback is configured.")
+            help("Find this in Supabase → Project Settings. Connect opens Supabase authorization; no access token is pasted into the app.")
         case .sentry:
             setupField("ORGANIZATION SLUG", "my-team", text: $model.configuration.sentryOrganization)
             setupField("PROJECT SLUG", "my-app", text: $model.configuration.sentryProject)

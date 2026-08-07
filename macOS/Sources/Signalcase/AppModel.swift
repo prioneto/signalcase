@@ -24,10 +24,14 @@ final class AppModel: ObservableObject {
     @Published var automaticSyncEnabled: Bool
     @Published var automaticSyncIntervalMinutes: Int
     @Published var lastSuccessfulSyncBySource: [String: Date]
+    @Published var cloudEmail: String?
+    @Published var cloudProjectID: UUID?
+    @Published var isCloudBusy = false
 
     private var receiver: LocalEventReceiver?
     private var automaticSyncTask: Task<Void, Never>?
     private var processedWebhookIDs: [String]
+    private let cloud = SignalcaseCloud()
 
     init(cases suppliedCases: [SignalCase]? = nil) {
         let workspace = WorkspaceStore.load()
@@ -66,6 +70,8 @@ final class AppModel: ObservableObject {
         processedWebhookIDs = workspace.processedWebhookIDs.isEmpty
             ? migratedEvents.compactMap(Self.webhookStoreKey)
             : workspace.processedWebhookIDs
+        cloudEmail = nil
+        cloudProjectID = workspace.cloudProjectID
         isOnboardingPresented = !workspace.hasCompletedOnboarding
         integrations = [
             .init(source: .supabase, state: Self.connectionState(.supabase, configuration: workspace.configuration, events: migratedEvents), detail: "Auth, database and function logs"),
@@ -82,6 +88,7 @@ final class AppModel: ObservableObject {
                 events: migratedEvents,
                 configuration: workspace.configuration,
                 projectPath: workspace.projectPath,
+                cloudProjectID: workspace.cloudProjectID,
                 lastSyncReport: workspace.lastSyncReport,
                 ignoredFingerprints: workspace.ignoredFingerprints,
                 deletedCases: workspace.deletedCases,
@@ -94,6 +101,7 @@ final class AppModel: ObservableObject {
         }
         startReceiver()
         restartAutomaticSync()
+        Task { await restoreCloudSession() }
     }
 
     var filteredCases: [SignalCase] {
@@ -128,9 +136,13 @@ final class AppModel: ObservableObject {
     }
 
     private var configuredPullSources: Set<LogSource> {
-        Set([LogSource.supabase, .stripe, .render, .sentry].filter { source in
+        var sources = Set([LogSource.stripe, .render, .sentry].filter { source in
             CredentialStore.load(source: source) != nil
         })
+        if cloudProjectID != nil, integrations.first(where: { $0.source == .supabase })?.state == .connected {
+            sources.insert(.supabase)
+        }
+        return sources
     }
 
     func count(for filter: CaseFilter) -> Int {
@@ -265,6 +277,10 @@ final class AppModel: ObservableObject {
     }
 
     func disconnect(_ source: LogSource) {
+        if source == .supabase {
+            Task { await disconnectSupabase() }
+            return
+        }
         CredentialStore.remove(source: source)
         lastSuccessfulSyncBySource.removeValue(forKey: source.rawValue)
         updateIntegration(source, state: .disconnected, count: 0, error: nil)
@@ -357,7 +373,78 @@ final class AppModel: ObservableObject {
             linkedProjectURL = panel.url
             persist()
             showToast("Linked \(projectName)")
+            if cloudEmail != nil { Task { await linkCloudProject() } }
         }
+    }
+
+    var isSignedIn: Bool { cloudEmail != nil }
+
+    func signInToSignalcase() async {
+        guard !isCloudBusy else { return }
+        isCloudBusy = true
+        defer { isCloudBusy = false }
+        do {
+            cloudEmail = try await cloud.signIn()
+            if linkedProjectURL != nil { await linkCloudProject() }
+            showToast("Signed in to Signalcase")
+        } catch {
+            showToast(SecretRedactor.redact(error.localizedDescription))
+        }
+    }
+
+    func signOutOfSignalcase() async {
+        guard !isCloudBusy else { return }
+        isCloudBusy = true
+        defer { isCloudBusy = false }
+        do { try await cloud.signOut() }
+        catch { showToast(SecretRedactor.redact(error.localizedDescription)) }
+        cloudEmail = nil
+        cloudProjectID = nil
+        updateIntegration(.supabase, state: .disconnected, count: 0, error: nil)
+        persist()
+    }
+
+    func connectSupabase() async {
+        guard !isCloudBusy else { return }
+        guard !configuration.supabaseProjectRef.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            showToast("Enter your Supabase project reference first")
+            return
+        }
+        isCloudBusy = true
+        defer { isCloudBusy = false }
+        do {
+            if cloudEmail == nil { cloudEmail = try await cloud.signIn() }
+            if cloudProjectID == nil { try await bootstrapCloudProject() }
+            guard let cloudProjectID else { throw SignalcaseCloudError.server("Link a local project folder first.") }
+            updateIntegration(.supabase, state: .syncing)
+            try await cloud.connectSupabase(
+                projectID: cloudProjectID,
+                externalProjectRef: configuration.supabaseProjectRef
+            )
+            await refreshSupabaseConnection()
+            persist()
+            showToast("Supabase connected")
+        } catch {
+            updateIntegration(.supabase, state: .failed, error: SecretRedactor.redact(error.localizedDescription))
+            showToast(SecretRedactor.redact(error.localizedDescription))
+        }
+    }
+
+    func disconnectSupabase() async {
+        guard let cloudProjectID else { return }
+        do { try await cloud.disconnectSupabase(projectID: cloudProjectID) }
+        catch {
+            showToast(SecretRedactor.redact(error.localizedDescription))
+            return
+        }
+        updateIntegration(.supabase, state: .disconnected, count: 0, error: nil)
+        lastSuccessfulSyncBySource.removeValue(forKey: LogSource.supabase.rawValue)
+        persist()
+        showToast("Supabase disconnected")
+    }
+
+    func handleDeepLink(_ url: URL) {
+        cloud.handle(url)
     }
 
     func importLogs() {
@@ -454,7 +541,10 @@ final class AppModel: ObservableObject {
     private func fetch(source: LogSource, start: Date, end: Date) async throws -> ProviderBatch {
         let token = CredentialStore.load(source: source, kind: .apiToken) ?? ""
         switch source {
-        case .supabase: return try await SupabaseProvider.fetchBatch(configuration: configuration, token: token, start: start, end: end)
+        case .supabase:
+            guard let cloudProjectID else { throw SignalcaseCloudError.signedOut }
+            let payload = try await cloud.syncSupabase(projectID: cloudProjectID, start: start, end: end)
+            return ProviderBatch(events: SupabaseProvider.normalize(payload))
         case .stripe: return try await StripeProvider.fetchBatch(token: token, start: start, end: end)
         case .render: return try await RenderProvider.fetchBatch(configuration: configuration, token: token, start: start, end: end)
         case .sentry: return try await SentryProvider.fetchBatch(configuration: configuration, token: token, start: start, end: end)
@@ -547,6 +637,7 @@ final class AppModel: ObservableObject {
             events: rawEvents,
             configuration: configuration,
             projectPath: linkedProjectURL?.path,
+            cloudProjectID: cloudProjectID,
             lastSyncReport: lastSyncReport,
             ignoredFingerprints: ignoredFingerprints,
             deletedCases: deletedCases,
@@ -562,11 +653,52 @@ final class AppModel: ObservableObject {
 
     static func connectionState(_ source: LogSource, configuration: ProviderConfiguration, events: [LogEvent]) -> IntegrationState {
         switch source {
-        case .supabase: return !configuration.supabaseProjectRef.isEmpty && CredentialStore.load(source: source) != nil ? .connected : .disconnected
+        case .supabase: return .disconnected
         case .sentry: return !configuration.sentryOrganization.isEmpty && !configuration.sentryProject.isEmpty && CredentialStore.load(source: source) != nil ? .connected : .disconnected
         case .render: return !configuration.renderOwnerID.isEmpty && !configuration.renderResourceIDs.isEmpty && CredentialStore.load(source: source) != nil ? .connected : .disconnected
         case .stripe: return CredentialStore.load(source: source) != nil ? .connected : .disconnected
         case .revenueCat, .application: return events.contains { $0.source == source } ? .connected : .disconnected
+        }
+    }
+
+    private func restoreCloudSession() async {
+        cloudEmail = await cloud.restoreSession()
+        guard cloudEmail != nil else { return }
+        if cloudProjectID == nil, linkedProjectURL != nil { await linkCloudProject() }
+        await refreshSupabaseConnection()
+    }
+
+    private func linkCloudProject() async {
+        do {
+            try await bootstrapCloudProject()
+            persist()
+        } catch {
+            showToast(SecretRedactor.redact(error.localizedDescription))
+        }
+    }
+
+    private func bootstrapCloudProject() async throws {
+        guard let linkedProjectURL else {
+            throw SignalcaseCloudError.server("Choose a project folder first.")
+        }
+        cloudProjectID = try await cloud.bootstrapProject(name: linkedProjectURL.lastPathComponent).id
+    }
+
+    private func refreshSupabaseConnection() async {
+        guard let cloudProjectID else { return }
+        do {
+            let status = try await cloud.connectionStatus(projectID: cloudProjectID)
+            if let projectRef = status.externalProjectRef, configuration.supabaseProjectRef.isEmpty {
+                configuration.supabaseProjectRef = projectRef
+            }
+            switch status.state {
+            case "connected": updateIntegration(.supabase, state: .connected, error: nil)
+            case "connecting": updateIntegration(.supabase, state: .syncing, error: nil)
+            case "error": updateIntegration(.supabase, state: .failed, error: status.error)
+            default: updateIntegration(.supabase, state: .disconnected, error: nil)
+            }
+        } catch {
+            updateIntegration(.supabase, state: .failed, error: SecretRedactor.redact(error.localizedDescription))
         }
     }
 

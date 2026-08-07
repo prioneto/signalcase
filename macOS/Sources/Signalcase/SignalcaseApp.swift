@@ -10,6 +10,7 @@ struct SignalcaseApp: App {
                 .environmentObject(model)
                 .preferredColorScheme(.dark)
                 .frame(minWidth: 1180, minHeight: 720)
+                .onOpenURL { model.handleDeepLink($0) }
         }
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unifiedCompact)

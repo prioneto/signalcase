@@ -5,6 +5,7 @@ struct PersistedWorkspace: Codable {
     var events: [LogEvent]
     var configuration: ProviderConfiguration
     var projectPath: String?
+    var cloudProjectID: UUID?
     var lastSyncReport: SyncReport?
     var ignoredFingerprints: [IgnoredFingerprint]
     var deletedCases: [SignalCase]
@@ -19,6 +20,7 @@ struct PersistedWorkspace: Codable {
         events: [LogEvent],
         configuration: ProviderConfiguration,
         projectPath: String?,
+        cloudProjectID: UUID? = nil,
         lastSyncReport: SyncReport? = nil,
         ignoredFingerprints: [IgnoredFingerprint] = [],
         deletedCases: [SignalCase] = [],
@@ -32,6 +34,7 @@ struct PersistedWorkspace: Codable {
         self.events = events
         self.configuration = configuration
         self.projectPath = projectPath
+        self.cloudProjectID = cloudProjectID
         self.lastSyncReport = lastSyncReport
         self.ignoredFingerprints = ignoredFingerprints
         self.deletedCases = deletedCases
@@ -43,7 +46,7 @@ struct PersistedWorkspace: Codable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case cases, events, configuration, projectPath, lastSyncReport, ignoredFingerprints, deletedCases, hasCompletedOnboarding
+        case cases, events, configuration, projectPath, cloudProjectID, lastSyncReport, ignoredFingerprints, deletedCases, hasCompletedOnboarding
         case automaticSyncEnabled, automaticSyncIntervalMinutes, lastSuccessfulSyncBySource
         case processedWebhookIDs
     }
@@ -54,6 +57,7 @@ struct PersistedWorkspace: Codable {
         events = try values.decodeIfPresent([LogEvent].self, forKey: .events) ?? []
         configuration = try values.decodeIfPresent(ProviderConfiguration.self, forKey: .configuration) ?? .empty
         projectPath = try values.decodeIfPresent(String.self, forKey: .projectPath)
+        cloudProjectID = try values.decodeIfPresent(UUID.self, forKey: .cloudProjectID)
         lastSyncReport = try values.decodeIfPresent(SyncReport.self, forKey: .lastSyncReport)
         ignoredFingerprints = try values.decodeIfPresent([IgnoredFingerprint].self, forKey: .ignoredFingerprints) ?? []
         deletedCases = try values.decodeIfPresent([SignalCase].self, forKey: .deletedCases) ?? []

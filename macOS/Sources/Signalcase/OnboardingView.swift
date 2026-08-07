@@ -132,6 +132,12 @@ struct OnboardingView: View {
                     model.chooseProject()
                 }
                 .buttonStyle(OnboardingSecondaryButtonStyle())
+
+                Button(model.isSignedIn ? "Signed in as \(model.cloudEmail ?? "team member")" : "Sign in with GitHub") {
+                    Task { await model.signInToSignalcase() }
+                }
+                .buttonStyle(OnboardingSecondaryButtonStyle())
+                .disabled(model.isSignedIn || model.isCloudBusy)
             }
             .padding(30)
             .frame(width: 340)
