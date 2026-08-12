@@ -1,6 +1,6 @@
 # Signalcase
 
-Signalcase is a native macOS app that turns logs from Supabase, Stripe, Render, RevenueCat, Sentry, and your application into compact, evidence-backed bug cases.
+Signalcase is a native macOS app that turns logs from Supabase, Render, and your application into compact, evidence-backed bug cases.
 
 Signalcase only uses connected or imported live data. Grouping and findings are deterministic, so no AI account is required.
 
@@ -15,9 +15,9 @@ The packaged app is created at `macOS/.build/Signalcase.app`.
 
 Try these flows:
 
-- In onboarding or Settings, sign in with GitHub and select the local project folder. This links the Mac folder to the team's Signalcase project.
-- Open **Connections**, enter the Supabase project reference, and click **Connect Supabase**. Authorization opens in the user's default browser and returns through the app's secure callback. The resulting provider tokens are encrypted on the server and are never saved in the app.
-- Other provider credentials currently use macOS Keychain. Prefer the narrowest read-only permissions available.
+- In onboarding or Settings, sign in with GitHub and create or select a Signalcase project. Every project keeps its own connections, cases, and activity history.
+- Open **Connections** and click **Connect Supabase**. Authorization opens in the user's default browser and returns through the app's secure callback. Signalcase then retrieves the accessible Supabase projects and lets the user choose one; no project reference or access token is pasted into the app. Provider tokens are encrypted on the server.
+- Render credentials currently use macOS Keychain. Prefer the narrowest read-only permissions available.
 - Click **Sync recent logs**, choose connected sources and a window, then let Signalcase detect cases. Provider pages and temporary rate limits are handled automatically.
 - Enable **Automatic sync** in Settings to incrementally check connected pull-based sources every 5, 15, 30, or 60 minutes while Signalcase is open.
 - Import a JSON, JSONL, or plain-text log file from the sync sheet.
@@ -25,23 +25,9 @@ Try these flows:
 
 ### Sources
 
-- **Supabase:** Management OAuth with the `analytics:read` scope. Signalcase queries the current Management API unified `logs` endpoint through its server.
-- **Stripe:** a restricted key with Events read access. Events and unsuccessful webhook deliveries from the selected window are read.
+- **Supabase:** Management OAuth with `projects:read` and `analytics:read`. Signalcase lists accessible projects, saves the user's selection, and queries the current Management API unified `logs` endpoint through its server.
 - **Render:** workspace owner ID, service IDs, and an API key. Service logs and deploys are read.
-- **Sentry:** organization/project slugs and an `event:read` token. Recent issues and their latest event are read.
-- **RevenueCat:** configure its webhook to send to `POST /revenuecat` on the receiver shown in the app. Configure the same required Authorization header on both sides; HMAC signing is also supported with a five-minute replay window.
-- **Application:** send structured JSON to `POST /events` on the same receiver with the required Authorization header.
-
-Example local application event:
-
-```bash
-curl -X POST http://localhost:9782/events \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer replace-with-your-receiver-secret' \
-  -d '{"timestamp":"2026-08-05T00:25:42Z","level":"error","title":"ProfileBootstrapError","message":"permission denied for table profiles","request_id":"req_17","user_id":"usr_42","release":"28cc04","route":"GET /profiles"}'
-```
-
-Use the same `request_id` or trace ID in your app logs and downstream service metadata when possible. Exact IDs are shown as proven links; nearby events are visibly labeled as time-based context.
+- **Application Logs:** a local authenticated endpoint accepts structured errors while Signalcase is open, so your own request IDs and error context can be matched to provider logs.
 
 ## Website
 
@@ -57,4 +43,4 @@ The server needs the values listed in `website/.env.example` before account link
 
 ## Current boundary
 
-The macOS receiver works while Signalcase is open. Supabase pull-based sync now uses the hosted authenticated server, but an always-on hosted collector is still needed for reliable RevenueCat and application webhook ingestion. Render, Stripe, and Sentry still use local Keychain credentials. Provider retention and API limits still apply, and RevenueCat history is collected from new webhooks rather than fetched retroactively.
+Supabase pull-based sync uses the hosted authenticated server. Render currently uses local Keychain credentials. The Application Logs receiver runs while Signalcase is open. Provider retention and API limits still apply.

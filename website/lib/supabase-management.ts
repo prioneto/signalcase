@@ -30,6 +30,7 @@ export function managementAuthorizationURL(input: {
   url.searchParams.set("state", input.state);
   url.searchParams.set("code_challenge", input.codeChallenge);
   url.searchParams.set("code_challenge_method", "S256");
+  url.searchParams.set("scope", "projects:read analytics:read");
   return url.toString();
 }
 

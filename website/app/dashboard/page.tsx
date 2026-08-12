@@ -79,7 +79,7 @@ export default async function DashboardPage() {
         <div className="cloud-section-title">
           <div>
             <h2>Projects</h2>
-            <p>Projects connected to this workspace.</p>
+            <p>Each project keeps its own connections and cases.</p>
           </div>
 
           <span>{projects?.length ?? 0}</span>
@@ -99,10 +99,9 @@ export default async function DashboardPage() {
           </div>
         ) : (
           <div className="cloud-empty">
-            <strong>No cloud project yet</strong>
+            <strong>No project yet</strong>
             <p>
-              The next stage links your native Signalcase project to this
-              workspace.
+              Open the Signalcase app to create your first project.
             </p>
           </div>
         )}

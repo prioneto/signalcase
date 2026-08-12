@@ -2,7 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { decryptSecret, encryptSecret } from "@/lib/credential-crypto";
 import { exchangeManagementToken, sha256 } from "@/lib/supabase-management";
 
-function appRedirect(status: "connected" | "error", message?: string) {
+function appRedirect(status: "authorized" | "error", message?: string) {
   const url = new URL("signalcase://integration/supabase");
   url.searchParams.set("status", status);
   if (message) url.searchParams.set("message", message.slice(0, 180));
@@ -21,7 +21,7 @@ export async function GET(request: Request) {
   try {
     const { data: pending, error } = await admin
       .from("provider_oauth_states")
-      .select("id, project_id, code_verifier_ciphertext, external_project_ref, redirect_uri, expires_at, consumed_at")
+      .select("id, project_id, code_verifier_ciphertext, redirect_uri, expires_at, consumed_at")
       .eq("state_hash", sha256(state))
       .maybeSingle();
     if (error || !pending) throw new Error("This connection request is not valid.");
@@ -69,14 +69,14 @@ export async function GET(request: Request) {
     const { error: updateError } = await admin
       .from("provider_connections")
       .update({
-        state: "connected",
-        connected_at: new Date().toISOString(),
+        state: "connecting",
+        connected_at: null,
         last_error: null,
-        metadata: { external_project_ref: pending.external_project_ref },
+        metadata: {},
       })
       .eq("id", connection.id);
     if (updateError) throw updateError;
-    return appRedirect("connected");
+    return appRedirect("authorized");
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not connect Supabase.";
     return appRedirect("error", message);

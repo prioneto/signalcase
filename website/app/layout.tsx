@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Signalcase — Bug evidence, ready",
-  description: "Turn logs from Supabase, Stripe, Render, RevenueCat, and Sentry into evidence-backed bug cases.",
+  description: "Turn logs from Supabase, Render, and your application into evidence-backed bug cases.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -13,4 +13,3 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     </html>
   );
 }
-

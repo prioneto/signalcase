@@ -4,7 +4,6 @@ struct PersistedWorkspace: Codable {
     var cases: [SignalCase]
     var events: [LogEvent]
     var configuration: ProviderConfiguration
-    var projectPath: String?
     var cloudProjectID: UUID?
     var lastSyncReport: SyncReport?
     var ignoredFingerprints: [IgnoredFingerprint]
@@ -19,7 +18,6 @@ struct PersistedWorkspace: Codable {
         cases: [SignalCase],
         events: [LogEvent],
         configuration: ProviderConfiguration,
-        projectPath: String?,
         cloudProjectID: UUID? = nil,
         lastSyncReport: SyncReport? = nil,
         ignoredFingerprints: [IgnoredFingerprint] = [],
@@ -33,7 +31,6 @@ struct PersistedWorkspace: Codable {
         self.cases = cases
         self.events = events
         self.configuration = configuration
-        self.projectPath = projectPath
         self.cloudProjectID = cloudProjectID
         self.lastSyncReport = lastSyncReport
         self.ignoredFingerprints = ignoredFingerprints
@@ -46,7 +43,7 @@ struct PersistedWorkspace: Codable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case cases, events, configuration, projectPath, cloudProjectID, lastSyncReport, ignoredFingerprints, deletedCases, hasCompletedOnboarding
+        case cases, events, configuration, cloudProjectID, lastSyncReport, ignoredFingerprints, deletedCases, hasCompletedOnboarding
         case automaticSyncEnabled, automaticSyncIntervalMinutes, lastSuccessfulSyncBySource
         case processedWebhookIDs
     }
@@ -56,7 +53,6 @@ struct PersistedWorkspace: Codable {
         cases = try values.decodeIfPresent([SignalCase].self, forKey: .cases) ?? []
         events = try values.decodeIfPresent([LogEvent].self, forKey: .events) ?? []
         configuration = try values.decodeIfPresent(ProviderConfiguration.self, forKey: .configuration) ?? .empty
-        projectPath = try values.decodeIfPresent(String.self, forKey: .projectPath)
         cloudProjectID = try values.decodeIfPresent(UUID.self, forKey: .cloudProjectID)
         lastSyncReport = try values.decodeIfPresent(SyncReport.self, forKey: .lastSyncReport)
         ignoredFingerprints = try values.decodeIfPresent([IgnoredFingerprint].self, forKey: .ignoredFingerprints) ?? []
@@ -68,13 +64,23 @@ struct PersistedWorkspace: Codable {
         processedWebhookIDs = try values.decodeIfPresent([String].self, forKey: .processedWebhookIDs) ?? []
     }
 
-    static let empty = PersistedWorkspace(cases: [], events: [], configuration: .empty, projectPath: nil)
+    static let empty = PersistedWorkspace(cases: [], events: [], configuration: .empty)
 }
 
 enum WorkspaceStore {
-    private static var fileURL: URL {
+    private static var directoryURL: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return base.appendingPathComponent("Signalcase", isDirectory: true).appendingPathComponent("workspace.json")
+        return base.appendingPathComponent("Signalcase", isDirectory: true)
+    }
+
+    private static var fileURL: URL {
+        directoryURL.appendingPathComponent("workspace.json")
+    }
+
+    private static func projectFileURL(_ projectID: UUID) -> URL {
+        directoryURL
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent("(projectID.uuidString.lowercased()).json")
     }
 
     static func load() -> PersistedWorkspace {
@@ -84,14 +90,36 @@ enum WorkspaceStore {
         return (try? decoder.decode(PersistedWorkspace.self, from: data)) ?? .empty
     }
 
+    static func load(projectID: UUID) -> PersistedWorkspace {
+        let url = projectFileURL(projectID)
+        guard let data = try? Data(contentsOf: url) else {
+            var workspace = PersistedWorkspace.empty
+            workspace.cloudProjectID = projectID
+            workspace.hasCompletedOnboarding = true
+            return workspace
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        var workspace = (try? decoder.decode(PersistedWorkspace.self, from: data)) ?? .empty
+        workspace.cloudProjectID = projectID
+        return workspace
+    }
+
     static func save(_ workspace: PersistedWorkspace) throws {
-        let directory = fileURL.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(workspace)
         try data.write(to: fileURL, options: .atomic)
+        if let projectID = workspace.cloudProjectID {
+            let projectURL = projectFileURL(projectID)
+            try FileManager.default.createDirectory(
+                at: projectURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try data.write(to: projectURL, options: .atomic)
+        }
     }
 }
 

@@ -6,15 +6,15 @@ final class AppModel: ObservableObject {
     @Published var cases: [SignalCase]
     @Published var rawEvents: [LogEvent]
     @Published var selectedCaseID: SignalCase.ID?
-    @Published var filter: CaseFilter = .all
+    @Published var filter: CaseFilter = .inbox
     @Published var searchText = ""
     @Published var isCapturePresented = false
     @Published var isSettingsPresented = false
+    @Published var isFeedbackPresented = false
     @Published var isOnboardingPresented: Bool
     @Published var settingsSection: SettingsSection = .general
     @Published var isCapturing = false
     @Published var toastMessage: String?
-    @Published var linkedProjectURL: URL?
     @Published var integrations: [Integration]
     @Published var configuration: ProviderConfiguration
     @Published var receiverStatus = "Receiver stopped"
@@ -26,6 +26,8 @@ final class AppModel: ObservableObject {
     @Published var lastSuccessfulSyncBySource: [String: Date]
     @Published var cloudEmail: String?
     @Published var cloudProjectID: UUID?
+    @Published var cloudProjects: [CloudProject] = []
+    @Published var supabaseProjects: [SupabaseProjectOption] = []
     @Published var isCloudBusy = false
 
     private var receiver: LocalEventReceiver?
@@ -38,8 +40,6 @@ final class AppModel: ObservableObject {
         let migratedEvents = workspace.events.map(SupabaseProvider.reclassifyPersisted)
         let migratedCases = workspace.cases.compactMap(Self.reclassifyPersistedCase)
         let ignored = Set(workspace.ignoredFingerprints.map(\.fingerprint))
-        let projectRoot = workspace.projectPath
-            .flatMap { FileManager.default.fileExists(atPath: $0) ? URL(fileURLWithPath: $0, isDirectory: true) : nil }
         let initialCases: [SignalCase]
         if let suppliedCases {
             initialCases = suppliedCases.filter { !ignored.contains($0.fingerprint) }
@@ -47,11 +47,7 @@ final class AppModel: ObservableObject {
             let nextReference = migratedCases
                 .compactMap { Int($0.reference.replacingOccurrences(of: "SIG-", with: "")) }
                 .max() ?? 0
-            let detected = SignalDetector.detect(
-                events: migratedEvents,
-                projectRoot: projectRoot,
-                startingNumber: nextReference
-            )
+            let detected = SignalDetector.detect(events: migratedEvents, startingNumber: nextReference)
             initialCases = SignalDetector.merge(
                 detected: detected.cases.filter { !ignored.contains($0.fingerprint) },
                 into: migratedCases.filter { !ignored.contains($0.fingerprint) }
@@ -60,7 +56,6 @@ final class AppModel: ObservableObject {
         cases = initialCases
         rawEvents = migratedEvents
         configuration = workspace.configuration
-        linkedProjectURL = projectRoot
         lastSyncReport = workspace.lastSyncReport
         ignoredFingerprints = workspace.ignoredFingerprints
         deletedCases = workspace.deletedCases
@@ -73,13 +68,21 @@ final class AppModel: ObservableObject {
         cloudEmail = nil
         cloudProjectID = workspace.cloudProjectID
         isOnboardingPresented = !workspace.hasCompletedOnboarding
+        if let projectID = workspace.cloudProjectID { CredentialStore.migrateLegacyCredentials(to: projectID) }
+        let hasApplicationCredential = CredentialStore.load(
+            source: .application,
+            kind: .authorizationHeader,
+            projectID: workspace.cloudProjectID
+        ) != nil
+        let hasApplicationEvents = migratedEvents.contains { $0.source == .application }
         integrations = [
             .init(source: .supabase, state: Self.connectionState(.supabase, configuration: workspace.configuration, events: migratedEvents), detail: "Auth, database and function logs"),
-            .init(source: .stripe, state: Self.connectionState(.stripe, configuration: workspace.configuration, events: migratedEvents), detail: "Events and failed webhook deliveries"),
-            .init(source: .render, state: Self.connectionState(.render, configuration: workspace.configuration, events: migratedEvents), detail: "Service logs, deploys and restarts"),
-            .init(source: .revenueCat, state: Self.connectionState(.revenueCat, configuration: workspace.configuration, events: migratedEvents), detail: "Incoming purchase and entitlement webhooks"),
-            .init(source: .sentry, state: Self.connectionState(.sentry, configuration: workspace.configuration, events: migratedEvents), detail: "Issues, stack frames and releases"),
-            .init(source: .application, state: Self.connectionState(.application, configuration: workspace.configuration, events: migratedEvents), detail: "Structured events sent by your app")
+            .init(source: .render, state: Self.connectionState(.render, configuration: workspace.configuration, events: migratedEvents, projectID: workspace.cloudProjectID), detail: "Service logs, deploys and restarts"),
+            .init(
+                source: .application,
+                state: hasApplicationEvents ? .connected : (hasApplicationCredential ? .waitingForEvent : .disconnected),
+                detail: "Errors and request context emitted by your code"
+            )
         ]
         selectedCaseID = nil
         if suppliedCases == nil {
@@ -87,7 +90,6 @@ final class AppModel: ObservableObject {
                 cases: initialCases,
                 events: migratedEvents,
                 configuration: workspace.configuration,
-                projectPath: workspace.projectPath,
                 cloudProjectID: workspace.cloudProjectID,
                 lastSyncReport: workspace.lastSyncReport,
                 ignoredFingerprints: workspace.ignoredFingerprints,
@@ -99,7 +101,7 @@ final class AppModel: ObservableObject {
                 processedWebhookIDs: processedWebhookIDs
             ))
         }
-        startReceiver()
+        if hasApplicationCredential { startReceiver() }
         restartAutomaticSync()
         Task { await restoreCloudSession() }
     }
@@ -108,7 +110,7 @@ final class AppModel: ObservableObject {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         return cases
             .filter { item in
-                let matchesStatus = filter.status.map { item.status == $0 } ?? true
+                let matchesStatus = filter.contains(item.status)
                 let matchesQuery = query.isEmpty
                     || item.title.localizedCaseInsensitiveContains(query)
                     || item.reference.localizedCaseInsensitiveContains(query)
@@ -124,7 +126,7 @@ final class AppModel: ObservableObject {
     }
 
     var projectName: String {
-        linkedProjectURL?.lastPathComponent ?? "No project linked"
+        cloudProjects.first(where: { $0.id == cloudProjectID })?.name ?? "No project selected"
     }
 
     var connectedCount: Int {
@@ -136,8 +138,8 @@ final class AppModel: ObservableObject {
     }
 
     private var configuredPullSources: Set<LogSource> {
-        var sources = Set([LogSource.stripe, .render, .sentry].filter { source in
-            CredentialStore.load(source: source) != nil
+        var sources = Set([LogSource.render].filter { source in
+            CredentialStore.load(source: source, projectID: cloudProjectID) != nil
         })
         if cloudProjectID != nil, integrations.first(where: { $0.source == .supabase })?.state == .connected {
             sources.insert(.supabase)
@@ -146,8 +148,7 @@ final class AppModel: ObservableObject {
     }
 
     func count(for filter: CaseFilter) -> Int {
-        guard let status = filter.status else { return cases.count }
-        return cases.filter { $0.status == status }.count
+        cases.filter { filter.contains($0.status) }.count
     }
 
     func select(_ item: SignalCase) {
@@ -163,6 +164,43 @@ final class AppModel: ObservableObject {
         isSettingsPresented = true
     }
 
+    func openFeedback() {
+        isFeedbackPresented = true
+    }
+
+    func submitFeedback(
+        kind: FeedbackKind,
+        subject: String,
+        message: String,
+        includeAppDetails: Bool
+    ) async throws {
+        let cleanSubject = subject.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        let version = includeAppDetails
+            ? Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1"
+            : "Not included"
+        let build = includeAppDetails
+            ? Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "development"
+            : "Not included"
+        let sourceNames = includeAppDetails
+            ? integrations.filter { $0.state == .connected }.map(\.source.title).sorted()
+            : []
+
+        try await cloud.submitFeedback(
+            projectID: includeAppDetails ? cloudProjectID : nil,
+            kind: kind,
+            subject: cleanSubject,
+            message: cleanMessage,
+            appVersion: version,
+            appBuild: build,
+            osVersion: includeAppDetails ? ProcessInfo.processInfo.operatingSystemVersionString : "Not included",
+            projectName: includeAppDetails ? projectName : "Not included",
+            connectedSources: sourceNames
+        )
+        isFeedbackPresented = false
+        showToast("Feedback sent · thank you")
+    }
+
     func completeOnboarding(openConnections: Bool = false) {
         isOnboardingPresented = false
         persist()
@@ -175,13 +213,23 @@ final class AppModel: ObservableObject {
         persist()
     }
 
-    func advanceSelectedCase() {
-        guard let selectedCaseID,
-              let index = cases.firstIndex(where: { $0.id == selectedCaseID }),
-              let next = cases[index].status.next else { return }
-        cases[index].status = next
+    func performSelectedCaseAction() {
+        guard let selectedID = selectedCaseID,
+              let index = cases.firstIndex(where: { $0.id == selectedID }) else { return }
+        let current = cases[index].status
+        let destination = current.actionDestination
+        cases[index].status = destination
         persist()
-        showToast("Moved to \(next.title)")
+        switch destination {
+        case .new:
+            showToast("Moved to New")
+        case .active:
+            showToast(current == .resolved ? "Case reopened in Active" : "Added to Active")
+        case .resolved:
+            filter = .inbox
+            selectedCaseID = nil
+            showToast("Resolved · it will reopen if the error returns")
+        }
     }
 
     func syncRecentLogs(minutes: Int, sources: Set<LogSource>, automatic: Bool = false) async {
@@ -250,14 +298,17 @@ final class AppModel: ObservableObject {
     ) async {
         do {
             if source == .revenueCat || source == .application {
-                let hasSavedAuthorization = CredentialStore.load(source: source, kind: .authorizationHeader) != nil
+                let hasSavedAuthorization = CredentialStore.load(source: source, kind: .authorizationHeader, projectID: cloudProjectID) != nil
                 guard hasSavedAuthorization || !authorizationHeader.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                     throw ProviderError.invalidConfiguration("Add an authorization header before starting the receiver.")
                 }
             }
-            if !token.isEmpty { try CredentialStore.save(token, source: source, kind: .apiToken) }
-            if !authorizationHeader.isEmpty { try CredentialStore.save(authorizationHeader, source: source, kind: .authorizationHeader) }
-            if !signingSecret.isEmpty { try CredentialStore.save(signingSecret, source: source, kind: .signingSecret) }
+            guard let cloudProjectID else {
+                throw SignalcaseCloudError.server("Create or select a Signalcase project first.")
+            }
+            if !token.isEmpty { try CredentialStore.save(token, source: source, kind: .apiToken, projectID: cloudProjectID) }
+            if !authorizationHeader.isEmpty { try CredentialStore.save(authorizationHeader, source: source, kind: .authorizationHeader, projectID: cloudProjectID) }
+            if !signingSecret.isEmpty { try CredentialStore.save(signingSecret, source: source, kind: .signingSecret, projectID: cloudProjectID) }
             persist()
             if source == .revenueCat || source == .application {
                 startReceiver()
@@ -281,7 +332,12 @@ final class AppModel: ObservableObject {
             Task { await disconnectSupabase() }
             return
         }
-        CredentialStore.remove(source: source)
+        CredentialStore.remove(source: source, projectID: cloudProjectID)
+        if source == .application {
+            receiver?.stop()
+            receiver = nil
+            receiverStatus = "Receiver stopped"
+        }
         lastSuccessfulSyncBySource.removeValue(forKey: source.rawValue)
         updateIntegration(source, state: .disconnected, count: 0, error: nil)
         persist()
@@ -357,27 +413,58 @@ final class AppModel: ObservableObject {
         lastSuccessfulSyncBySource = [:]
         processedWebhookIDs = []
         selectedCaseID = nil
-        filter = .all
+        filter = .inbox
         persist()
         showToast("Cleared local cases, events, and activity history")
     }
 
-    func chooseProject() {
-        let panel = NSOpenPanel()
-        panel.title = "Link source project"
-        panel.prompt = "Link project"
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        if panel.runModal() == .OK {
-            linkedProjectURL = panel.url
-            persist()
-            showToast("Linked \(projectName)")
-            if cloudEmail != nil { Task { await linkCloudProject() } }
+    var isSignedIn: Bool { cloudEmail != nil }
+
+    func createProject(named value: String) async -> Bool {
+        let name = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            showToast("Enter a project name")
+            return false
+        }
+        guard !isCloudBusy else { return false }
+        isCloudBusy = true
+        defer { isCloudBusy = false }
+        do {
+            if cloudEmail == nil { cloudEmail = try await cloud.signIn() }
+            let project = try await cloud.bootstrapProject(name: name)
+            if !cloudProjects.contains(where: { $0.id == project.id }) {
+                cloudProjects.append(project)
+                cloudProjects.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            }
+            selectProject(project, preserveCurrentDataIfUnassigned: cloudProjectID == nil)
+            showToast("Created \(project.name)")
+            return true
+        } catch {
+            showToast(SecretRedactor.redact(error.localizedDescription))
+            return false
         }
     }
 
-    var isSignedIn: Bool { cloudEmail != nil }
+    func selectProject(_ project: CloudProject) {
+        selectProject(project, preserveCurrentDataIfUnassigned: false)
+    }
+
+    private func selectProject(_ project: CloudProject, preserveCurrentDataIfUnassigned: Bool) {
+        guard project.id != cloudProjectID else { return }
+        let hadNoProject = cloudProjectID == nil
+        persist()
+        if preserveCurrentDataIfUnassigned && hadNoProject {
+            cloudProjectID = project.id
+            configuration.supabaseProjectRef = ""
+            persist()
+        } else {
+            applyProjectWorkspace(WorkspaceStore.load(projectID: project.id), projectID: project.id)
+        }
+        selectedCaseID = nil
+        filter = .inbox
+        Task { await refreshSupabaseConnection() }
+        showToast("Switched to \(project.name)")
+    }
 
     func signInToSignalcase() async {
         guard !isCloudBusy else { return }
@@ -385,7 +472,8 @@ final class AppModel: ObservableObject {
         defer { isCloudBusy = false }
         do {
             cloudEmail = try await cloud.signIn()
-            if linkedProjectURL != nil { await linkCloudProject() }
+            await refreshCloudProjects()
+            await refreshSupabaseConnection()
             showToast("Signed in to Signalcase")
         } catch {
             showToast(SecretRedactor.redact(error.localizedDescription))
@@ -399,35 +487,71 @@ final class AppModel: ObservableObject {
         do { try await cloud.signOut() }
         catch { showToast(SecretRedactor.redact(error.localizedDescription)) }
         cloudEmail = nil
-        cloudProjectID = nil
+        cloudProjects = []
+        supabaseProjects = []
         updateIntegration(.supabase, state: .disconnected, count: 0, error: nil)
         persist()
     }
 
     func connectSupabase() async {
         guard !isCloudBusy else { return }
-        guard !configuration.supabaseProjectRef.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            showToast("Enter your Supabase project reference first")
-            return
-        }
         isCloudBusy = true
         defer { isCloudBusy = false }
         do {
             if cloudEmail == nil { cloudEmail = try await cloud.signIn() }
-            if cloudProjectID == nil { try await bootstrapCloudProject() }
-            guard let cloudProjectID else { throw SignalcaseCloudError.server("Link a local project folder first.") }
+            if cloudProjects.isEmpty { await refreshCloudProjects() }
+            guard let cloudProjectID else { throw SignalcaseCloudError.server("Create or select a Signalcase project first.") }
             updateIntegration(.supabase, state: .syncing)
-            try await cloud.connectSupabase(
-                projectID: cloudProjectID,
-                externalProjectRef: configuration.supabaseProjectRef
-            )
-            await refreshSupabaseConnection()
-            persist()
-            showToast("Supabase connected")
+            let projects = try await cloud.authorizeSupabase(projectID: cloudProjectID)
+            guard !projects.isEmpty else {
+                throw SignalcaseCloudError.server("This Supabase account has no accessible projects.")
+            }
+            if projects.count == 1, let onlyProject = projects.first {
+                try await finishSupabaseConnection(onlyProject, signalcaseProjectID: cloudProjectID)
+            } else {
+                supabaseProjects = projects
+                updateIntegration(.supabase, state: .available, error: nil)
+                showToast("Choose the Supabase project to connect")
+            }
+        } catch {
+            supabaseProjects = []
+            updateIntegration(.supabase, state: .failed, error: SecretRedactor.redact(error.localizedDescription))
+            showToast(SecretRedactor.redact(error.localizedDescription))
+        }
+    }
+
+    func chooseSupabaseProject(_ project: SupabaseProjectOption) async {
+        guard !isCloudBusy, let cloudProjectID else { return }
+        isCloudBusy = true
+        defer { isCloudBusy = false }
+        do {
+            updateIntegration(.supabase, state: .syncing, error: nil)
+            try await finishSupabaseConnection(project, signalcaseProjectID: cloudProjectID)
         } catch {
             updateIntegration(.supabase, state: .failed, error: SecretRedactor.redact(error.localizedDescription))
             showToast(SecretRedactor.redact(error.localizedDescription))
         }
+    }
+
+    func cancelSupabaseProjectSelection() {
+        supabaseProjects = []
+        updateIntegration(.supabase, state: .disconnected, error: nil)
+        Task { await disconnectSupabase() }
+    }
+
+    private func finishSupabaseConnection(
+        _ project: SupabaseProjectOption,
+        signalcaseProjectID: UUID
+    ) async throws {
+        let selected = try await cloud.selectSupabaseProject(
+            projectID: signalcaseProjectID,
+            projectRef: project.ref
+        )
+        configuration.supabaseProjectRef = selected.ref
+        supabaseProjects = []
+        await refreshSupabaseConnection()
+        persist()
+        showToast("Connected \(selected.name)")
     }
 
     func disconnectSupabase() async {
@@ -438,6 +562,8 @@ final class AppModel: ObservableObject {
             return
         }
         updateIntegration(.supabase, state: .disconnected, count: 0, error: nil)
+        supabaseProjects = []
+        configuration.supabaseProjectRef = ""
         lastSuccessfulSyncBySource.removeValue(forKey: LogSource.supabase.rawValue)
         persist()
         showToast("Supabase disconnected")
@@ -451,7 +577,7 @@ final class AppModel: ObservableObject {
         Task {
             if let email = await cloud.handle(url) {
                 cloudEmail = email
-                if linkedProjectURL != nil { await linkCloudProject() }
+                await refreshCloudProjects()
                 showToast("Signed in to Signalcase")
             }
         }
@@ -507,19 +633,6 @@ final class AppModel: ObservableObject {
         showToast(lastSyncReport?.summary ?? "No readable log events found")
     }
 
-    func openCode(_ reference: CodeReference) {
-        guard let linkedProjectURL else {
-            showToast("Link a project before opening source")
-            return
-        }
-        let url = linkedProjectURL.appendingPathComponent(reference.path)
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            showToast("That path is not present in \(projectName)")
-            return
-        }
-        NSWorkspace.shared.open(url)
-    }
-
     func copySelectedCase() {
         guard let item = selectedCase else { return }
         var lines = [
@@ -531,9 +644,6 @@ final class AppModel: ObservableObject {
             "Proven findings:"
         ]
         lines.append(contentsOf: item.findings.map { "- \($0.title): \($0.detail)" })
-        lines.append("")
-        lines.append("Relevant code:")
-        lines.append(contentsOf: item.codeReferences.map { "- \($0.path):\($0.line) — \($0.reason)" })
 
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
@@ -549,7 +659,7 @@ final class AppModel: ObservableObject {
     }
 
     private func fetch(source: LogSource, start: Date, end: Date) async throws -> ProviderBatch {
-        let token = CredentialStore.load(source: source, kind: .apiToken) ?? ""
+        let token = CredentialStore.load(source: source, kind: .apiToken, projectID: cloudProjectID) ?? ""
         switch source {
         case .supabase:
             guard let cloudProjectID else { throw SignalcaseCloudError.signedOut }
@@ -577,17 +687,32 @@ final class AppModel: ObservableObject {
         if rawEvents.count > 5_000 { rawEvents = Array(rawEvents.prefix(5_000)) }
 
         let next = cases.compactMap { Int($0.reference.replacingOccurrences(of: "SIG-", with: "")) }.max() ?? 0
-        let detected = SignalDetector.detect(events: rawEvents, projectRoot: linkedProjectURL, startingNumber: next)
+        let detected = SignalDetector.detect(events: rawEvents, startingNumber: next)
         let ignored = Set(ignoredFingerprints.map(\.fingerprint))
         cases = SignalDetector.merge(detected: detected.cases.filter { !ignored.contains($0.fingerprint) }, into: cases)
         selectedCaseID = cases.first?.id
-        filter = .all
+        filter = .inbox
         persist()
     }
 
     private func startReceiver() {
         receiver?.stop()
         let receiver = LocalEventReceiver(
+            applicationAuthorization: CredentialStore.load(
+                source: .application,
+                kind: .authorizationHeader,
+                projectID: cloudProjectID
+            ),
+            revenueCatAuthorization: CredentialStore.load(
+                source: .revenueCat,
+                kind: .authorizationHeader,
+                projectID: cloudProjectID
+            ),
+            revenueCatSigningSecret: CredentialStore.load(
+                source: .revenueCat,
+                kind: .signingSecret,
+                projectID: cloudProjectID
+            ),
             onEvent: { [weak self] event in
                 Task { @MainActor in
                     guard let self else { return }
@@ -646,7 +771,6 @@ final class AppModel: ObservableObject {
             cases: cases,
             events: rawEvents,
             configuration: configuration,
-            projectPath: linkedProjectURL?.path,
             cloudProjectID: cloudProjectID,
             lastSyncReport: lastSyncReport,
             ignoredFingerprints: ignoredFingerprints,
@@ -661,12 +785,17 @@ final class AppModel: ObservableObject {
         catch { showToast("Could not save workspace: \(error.localizedDescription)") }
     }
 
-    static func connectionState(_ source: LogSource, configuration: ProviderConfiguration, events: [LogEvent]) -> IntegrationState {
+    static func connectionState(
+        _ source: LogSource,
+        configuration: ProviderConfiguration,
+        events: [LogEvent],
+        projectID: UUID? = nil
+    ) -> IntegrationState {
         switch source {
         case .supabase: return .disconnected
-        case .sentry: return !configuration.sentryOrganization.isEmpty && !configuration.sentryProject.isEmpty && CredentialStore.load(source: source) != nil ? .connected : .disconnected
-        case .render: return !configuration.renderOwnerID.isEmpty && !configuration.renderResourceIDs.isEmpty && CredentialStore.load(source: source) != nil ? .connected : .disconnected
-        case .stripe: return CredentialStore.load(source: source) != nil ? .connected : .disconnected
+        case .sentry: return !configuration.sentryOrganization.isEmpty && !configuration.sentryProject.isEmpty && CredentialStore.load(source: source, projectID: projectID) != nil ? .connected : .disconnected
+        case .render: return !configuration.renderOwnerID.isEmpty && !configuration.renderResourceIDs.isEmpty && CredentialStore.load(source: source, projectID: projectID) != nil ? .connected : .disconnected
+        case .stripe: return CredentialStore.load(source: source, projectID: projectID) != nil ? .connected : .disconnected
         case .revenueCat, .application: return events.contains { $0.source == source } ? .connected : .disconnected
         }
     }
@@ -674,32 +803,67 @@ final class AppModel: ObservableObject {
     private func restoreCloudSession() async {
         cloudEmail = await cloud.restoreSession()
         guard cloudEmail != nil else { return }
-        if cloudProjectID == nil, linkedProjectURL != nil { await linkCloudProject() }
+        await refreshCloudProjects()
         await refreshSupabaseConnection()
     }
 
-    private func linkCloudProject() async {
+    private func refreshCloudProjects() async {
         do {
-            try await bootstrapCloudProject()
-            persist()
+            cloudProjects = try await cloud.listProjects().sorted {
+                $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+            }
+            if let selectedID = cloudProjectID,
+               cloudProjects.contains(where: { $0.id == selectedID }) {
+                return
+            }
+            guard let first = cloudProjects.first else {
+                cloudProjectID = nil
+                return
+            }
+            selectProject(first, preserveCurrentDataIfUnassigned: cloudProjectID == nil)
         } catch {
             showToast(SecretRedactor.redact(error.localizedDescription))
         }
     }
 
-    private func bootstrapCloudProject() async throws {
-        guard let linkedProjectURL else {
-            throw SignalcaseCloudError.server("Choose a project folder first.")
-        }
-        cloudProjectID = try await cloud.bootstrapProject(name: linkedProjectURL.lastPathComponent).id
+    private func applyProjectWorkspace(_ workspace: PersistedWorkspace, projectID: UUID) {
+        receiver?.stop()
+        receiver = nil
+        cases = workspace.cases.compactMap(Self.reclassifyPersistedCase)
+        rawEvents = workspace.events.map(SupabaseProvider.reclassifyPersisted)
+        configuration = workspace.configuration
+        cloudProjectID = projectID
+        supabaseProjects = []
+        lastSyncReport = workspace.lastSyncReport
+        ignoredFingerprints = workspace.ignoredFingerprints
+        deletedCases = workspace.deletedCases
+        automaticSyncEnabled = workspace.automaticSyncEnabled
+        automaticSyncIntervalMinutes = workspace.automaticSyncIntervalMinutes
+        lastSuccessfulSyncBySource = workspace.lastSuccessfulSyncBySource
+        processedWebhookIDs = workspace.processedWebhookIDs
+        let hasApplicationCredential = CredentialStore.load(source: .application, kind: .authorizationHeader, projectID: projectID) != nil
+        integrations = [
+            .init(source: .supabase, state: .disconnected, detail: "Auth, database and function logs"),
+            .init(source: .render, state: Self.connectionState(.render, configuration: configuration, events: rawEvents, projectID: projectID), detail: "Service logs, deploys and restarts"),
+            .init(
+                source: .application,
+                state: rawEvents.contains { $0.source == .application } ? .connected : (hasApplicationCredential ? .waitingForEvent : .disconnected),
+                detail: "Errors and request context emitted by your code"
+            )
+        ]
+        if hasApplicationCredential { startReceiver() }
+        restartAutomaticSync()
+        persist()
     }
 
     private func refreshSupabaseConnection() async {
         guard let cloudProjectID else { return }
         do {
             let status = try await cloud.connectionStatus(projectID: cloudProjectID)
-            if let projectRef = status.externalProjectRef, configuration.supabaseProjectRef.isEmpty {
+            if let projectRef = status.externalProjectRef,
+               configuration.supabaseProjectRef != projectRef {
                 configuration.supabaseProjectRef = projectRef
+                persist()
             }
             switch status.state {
             case "connected": updateIntegration(.supabase, state: .connected, error: nil)
@@ -748,7 +912,7 @@ final class AppModel: ObservableObject {
         let next = (cases + deletedCases)
             .compactMap { Int($0.reference.replacingOccurrences(of: "SIG-", with: "")) }
             .max() ?? 0
-        let detected = SignalDetector.detect(events: rawEvents, projectRoot: linkedProjectURL, startingNumber: next)
+        let detected = SignalDetector.detect(events: rawEvents, startingNumber: next)
         let ignored = Set(ignoredFingerprints.map(\.fingerprint))
         cases = SignalDetector.merge(detected: detected.cases.filter { !ignored.contains($0.fingerprint) }, into: cases)
     }

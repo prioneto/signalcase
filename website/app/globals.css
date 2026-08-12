@@ -581,6 +581,9 @@ body::before {
 .source-rd {
   color: var(--blue);
 }
+.source-app {
+  color: var(--orange);
+}
 .source-rc {
   color: var(--orange);
 }

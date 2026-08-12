@@ -72,7 +72,7 @@ This is separate from GitHub sign-in. It gives Signalcase permission to read a u
 https://YOUR_DOMAIN/api/integrations/supabase/callback
 ```
 
-7. Enable only **Analytics · Read** (`analytics:read`). No write scopes are needed.
+7. Enable **Projects · Read** (`projects:read`) and **Analytics · Read** (`analytics:read`). No write scopes are needed. Existing users must reconnect after adding `projects:read`.
 8. Save the application.
 9. Copy its **Client ID** and **Client Secret**. The secret may only be shown once.
 
@@ -145,11 +145,11 @@ The build checks `macOS/.env.build` first. If that file does not exist, it reads
 
 1. Start or deploy the website server.
 2. Open the newly built Signalcase app.
-3. Complete onboarding and select a local project folder.
+3. Complete onboarding and create or select a Signalcase project.
 4. Click **Sign in with GitHub**. Your default browser should open, then return to Signalcase and show your email.
 5. Open **Settings** → **Connections** → **Supabase**.
-6. Find the monitored project's reference in its Supabase dashboard URL or **Project Settings**, paste it, and click **Connect Supabase**.
-7. Approve the `analytics:read` request. The browser should return to Signalcase and the connection should show **Connected**.
+6. Click **Connect Supabase** and approve the `projects:read` and `analytics:read` request in the browser.
+7. The browser returns to Signalcase. If the account has multiple Supabase projects, choose the correct project in the native picker; a single accessible project is selected automatically.
 8. In the monitored Supabase project's **SQL Editor**, run this harmless failing read to create a real error log:
 
 ```sql
@@ -160,4 +160,4 @@ select * from public.signalcase_connection_test_table_that_does_not_exist;
 10. In Signalcase, click **Sync logs**, select Supabase, choose the last 15 minutes, and sync.
 11. Confirm a database-error case appears. Open it and verify its source is Supabase rather than demo data.
 
-If authorization succeeds but sync returns `403`, confirm the Management OAuth app has **Analytics · Read**, then disconnect and reconnect so the new scope is granted. If the app reports missing cloud configuration, rebuild the app with the three public values in step 6.
+If authorization succeeds but project selection or sync returns `403`, confirm the Management OAuth app has **Projects · Read** and **Analytics · Read**, then disconnect and reconnect so both scopes are granted. If the app reports missing cloud configuration, rebuild the app with the three public values in step 6.

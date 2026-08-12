@@ -18,7 +18,7 @@ enum SignalcaseCloudError: LocalizedError {
     }
 }
 
-struct CloudProject: Codable {
+struct CloudProject: Codable, Identifiable, Hashable {
     let id: UUID
     let workspaceId: UUID
     let name: String
@@ -33,9 +33,50 @@ struct CloudConnectionStatus: Codable {
     let error: String?
 }
 
+struct SupabaseProjectOption: Codable, Identifiable, Hashable {
+    let ref: String
+    let name: String
+    let organizationSlug: String?
+    let region: String?
+    let status: String?
+
+    var id: String { ref }
+}
+
 private struct CloudProjectEnvelope: Codable { let project: CloudProject }
+private struct CloudProjectsEnvelope: Codable { let projects: [CloudProject] }
+private struct SupabaseProjectsEnvelope: Codable { let projects: [SupabaseProjectOption] }
+private struct SupabaseSelectionEnvelope: Codable {
+    let state: String
+    let externalProjectRef: String
+    let project: SupabaseProjectOption
+}
 private struct AuthorizationEnvelope: Codable { let authorizationUrl: URL }
 private struct APIErrorEnvelope: Codable { let error: String }
+
+private struct FeedbackSubmission: Encodable {
+    let projectID: UUID?
+    let kind: String
+    let subject: String
+    let message: String
+    let contactEmail: String?
+    let appVersion: String
+    let appBuild: String
+    let osVersion: String
+    let projectName: String
+    let connectedSources: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case kind, subject, message
+        case projectID = "project_id"
+        case contactEmail = "contact_email"
+        case appVersion = "app_version"
+        case appBuild = "app_build"
+        case osVersion = "os_version"
+        case projectName = "project_name"
+        case connectedSources = "connected_sources"
+    }
+}
 
 @MainActor
 final class SignalcaseCloud {
@@ -62,6 +103,7 @@ final class SignalcaseCloud {
                 supabaseKey: publishableKey,
                 options: SupabaseClientOptions(
                     auth: .init(
+                        storage: KeychainLocalStorage(service: "app.signalcase.auth"),
                         redirectToURL: URL(string: "signalcase://auth/callback"),
                         storageKey: "app.signalcase.auth"
                     )
@@ -111,6 +153,15 @@ final class SignalcaseCloud {
         return envelope.project
     }
 
+    func listProjects() async throws -> [CloudProject] {
+        let envelope: CloudProjectsEnvelope = try await request(
+            path: "/api/native/project",
+            method: "GET",
+            body: Optional<[String: String]>.none
+        )
+        return envelope.projects
+    }
+
     func connectionStatus(projectID: UUID) async throws -> CloudConnectionStatus {
         try await request(
             path: "/api/integrations/supabase/status?projectId=\(projectID.uuidString)",
@@ -119,14 +170,11 @@ final class SignalcaseCloud {
         )
     }
 
-    func connectSupabase(projectID: UUID, externalProjectRef: String) async throws {
+    func authorizeSupabase(projectID: UUID) async throws -> [SupabaseProjectOption] {
         let envelope: AuthorizationEnvelope = try await request(
             path: "/api/integrations/supabase/session",
             method: "POST",
-            body: [
-                "projectId": projectID.uuidString,
-                "externalProjectRef": externalProjectRef,
-            ]
+            body: ["projectId": projectID.uuidString]
         )
         let callback = try await openInDefaultBrowser(
             envelope.authorizationUrl,
@@ -134,9 +182,30 @@ final class SignalcaseCloud {
         )
         let components = URLComponents(url: callback, resolvingAgainstBaseURL: false)
         let values = Dictionary(uniqueKeysWithValues: (components?.queryItems ?? []).map { ($0.name, $0.value ?? "") })
-        guard values["status"] == "connected" else {
+        guard values["status"] == "authorized" else {
             throw SignalcaseCloudError.server(values["message"] ?? "Supabase authorization was cancelled.")
         }
+        let projects: SupabaseProjectsEnvelope = try await request(
+            path: "/api/integrations/supabase/projects?projectId=\(projectID.uuidString)",
+            method: "GET",
+            body: Optional<[String: String]>.none
+        )
+        return projects.projects
+    }
+
+    func selectSupabaseProject(projectID: UUID, projectRef: String) async throws -> SupabaseProjectOption {
+        let envelope: SupabaseSelectionEnvelope = try await request(
+            path: "/api/integrations/supabase/projects",
+            method: "POST",
+            body: [
+                "projectId": projectID.uuidString,
+                "projectRef": projectRef,
+            ]
+        )
+        guard envelope.state == "connected" else {
+            throw SignalcaseCloudError.server("Supabase did not finish connecting.")
+        }
+        return envelope.project
     }
 
     func disconnectSupabase(projectID: UUID) async throws {
@@ -163,6 +232,42 @@ final class SignalcaseCloud {
             throw SignalcaseCloudError.invalidResponse
         }
         return payload
+    }
+
+    func submitFeedback(
+        projectID: UUID?,
+        kind: FeedbackKind,
+        subject: String,
+        message: String,
+        appVersion: String,
+        appBuild: String,
+        osVersion: String,
+        projectName: String,
+        connectedSources: [String]
+    ) async throws {
+        guard let client else {
+            throw SignalcaseCloudError.notConfigured("This build is missing its Signalcase Cloud settings.")
+        }
+        let session: Session
+        do { session = try await client.auth.session }
+        catch { throw SignalcaseCloudError.signedOut }
+
+        let submission = FeedbackSubmission(
+            projectID: projectID,
+            kind: kind.rawValue,
+            subject: subject,
+            message: message,
+            contactEmail: session.user.email,
+            appVersion: appVersion,
+            appBuild: appBuild,
+            osVersion: osVersion,
+            projectName: projectName,
+            connectedSources: connectedSources
+        )
+        try await client
+            .from("feedback_submissions")
+            .insert(submission)
+            .execute()
     }
 
     func handle(_ url: URL) async -> String? {

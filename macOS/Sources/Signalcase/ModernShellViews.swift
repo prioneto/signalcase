@@ -18,12 +18,21 @@ struct SidebarView: View {
             Spacer()
 
             sectionLabel("WORKSPACE")
-            ModernSidebarActionRow(
-                title: "Settings",
-                subtitle: settingsSubtitle,
-                systemImage: "gearshape",
-                tint: SignalTheme.blue
-            ) { model.openSettings() }
+            VStack(spacing: 3) {
+                ModernSidebarActionRow(
+                    title: "Send feedback",
+                    subtitle: "Bug · question · feature",
+                    systemImage: "bubble.left.and.bubble.right",
+                    tint: SignalTheme.lime
+                ) { model.openFeedback() }
+
+                ModernSidebarActionRow(
+                    title: "Settings",
+                    subtitle: settingsSubtitle,
+                    systemImage: "gearshape",
+                    tint: SignalTheme.blue
+                ) { model.openSettings() }
+            }
         }
         .padding(.top, 18)
         .padding(.horizontal, 14)
@@ -361,20 +370,18 @@ private struct ModernQuietButtonStyle: ButtonStyle {
 
 private func modernFilterIcon(_ filter: CaseFilter) -> String {
     switch filter {
-    case .all: "square.grid.2x2"
+    case .inbox: "tray"
     case .new: "circle"
-    case .triaged: "checkmark.circle"
-    case .fixing: "hammer"
-    case .verified: "checkmark.seal"
+    case .active: "bolt"
+    case .resolved: "checkmark.circle"
     }
 }
 
 private func modernStatusColor(_ status: CaseStatus) -> Color {
     switch status {
     case .new: SignalTheme.orange
-    case .triaged: SignalTheme.yellow
-    case .fixing: SignalTheme.blue
-    case .verified: SignalTheme.lime
+    case .active: SignalTheme.blue
+    case .resolved: SignalTheme.lime
     }
 }
 

@@ -12,11 +12,20 @@ final class LocalEventReceiver {
     private let queue = DispatchQueue(label: "app.signalcase.receiver")
     private let onEvent: @Sendable (LogEvent) -> Void
     private let onState: @Sendable (String) -> Void
+    private let applicationAuthorization: String?
+    private let revenueCatAuthorization: String?
+    private let revenueCatSigningSecret: String?
 
     init(
+        applicationAuthorization: String? = nil,
+        revenueCatAuthorization: String? = nil,
+        revenueCatSigningSecret: String? = nil,
         onEvent: @escaping @Sendable (LogEvent) -> Void,
         onState: @escaping @Sendable (String) -> Void
     ) {
+        self.applicationAuthorization = applicationAuthorization
+        self.revenueCatAuthorization = revenueCatAuthorization
+        self.revenueCatSigningSecret = revenueCatSigningSecret
         self.onEvent = onEvent
         self.onState = onState
     }
@@ -129,17 +138,17 @@ final class LocalEventReceiver {
             case "/events":
                 try WebhookSecurity.verifyAuthorization(
                     received: request.headers["authorization"],
-                    expected: CredentialStore.load(source: .application, kind: .authorizationHeader)
+                    expected: applicationAuthorization
                 )
             case "/revenuecat":
                 try WebhookSecurity.verifyAuthorization(
                     received: request.headers["authorization"],
-                    expected: CredentialStore.load(source: .revenueCat, kind: .authorizationHeader)
+                    expected: revenueCatAuthorization
                 )
                 try WebhookSecurity.verifyRevenueCatSignature(
                     header: request.headers["x-revenuecat-webhook-signature"],
                     body: request.body,
-                    secret: CredentialStore.load(source: .revenueCat, kind: .signingSecret)
+                    secret: revenueCatSigningSecret
                 )
             default:
                 respond(404, "Use POST /events or POST /revenuecat", to: connection)

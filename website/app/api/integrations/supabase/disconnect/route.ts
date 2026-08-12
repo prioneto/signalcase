@@ -16,7 +16,7 @@ export async function POST(request: Request) {
       await admin.from("provider_credentials").delete().eq("connection_id", connection.id);
       const { error: updateError } = await admin
         .from("provider_connections")
-        .update({ state: "disconnected", connected_at: null, last_error: null })
+        .update({ state: "disconnected", metadata: {}, connected_at: null, last_error: null })
         .eq("id", connection.id);
       if (updateError) throw updateError;
     }

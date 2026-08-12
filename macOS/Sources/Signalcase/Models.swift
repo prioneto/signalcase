@@ -2,46 +2,69 @@ import Foundation
 
 enum CaseStatus: String, CaseIterable, Codable, Identifiable {
     case new
-    case triaged
-    case fixing
-    case verified
+    case active
+    case resolved
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .new: "New"
-        case .triaged: "Reviewed"
-        case .fixing: "Fixing"
-        case .verified: "Verified"
+        case .active: "Active"
+        case .resolved: "Resolved"
         }
     }
 
     var explanation: String {
         switch self {
-        case .new: "Detected and waiting for someone to review the evidence."
-        case .triaged: "Confirmed as a real problem and ready for a developer."
-        case .fixing: "A developer is actively working on the problem."
-        case .verified: "The fix was checked and the problem no longer reproduces."
+        case .new: "A newly detected problem that needs a decision."
+        case .active: "A real problem someone is currently investigating or fixing."
+        case .resolved: "Removed from the Inbox. A new occurrence reopens it automatically."
         }
     }
 
-    var advanceActionTitle: String? {
+    var primaryActionTitle: String {
         switch self {
-        case .new: "Mark as reviewed"
-        case .triaged: "Start fixing"
-        case .fixing: "Mark as verified"
-        case .verified: nil
+        case .new: "Start investigating"
+        case .active: "Resolve case"
+        case .resolved: "Reopen case"
         }
     }
 
-    var next: CaseStatus? {
+    var actionDestination: CaseStatus {
         switch self {
-        case .new: .triaged
-        case .triaged: .fixing
-        case .fixing: .verified
-        case .verified: nil
+        case .new: .active
+        case .active: .resolved
+        case .resolved: .active
         }
+    }
+
+    var actionSystemImage: String {
+        switch self {
+        case .new: "play.fill"
+        case .active: "checkmark"
+        case .resolved: "arrow.uturn.backward"
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let value = try container.decode(String.self)
+        switch value {
+        case "new": self = .new
+        case "active", "triaged", "fixing": self = .active
+        case "resolved", "verified": self = .resolved
+        default:
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Unknown case status: \(value)"
+            )
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 }
 
@@ -54,25 +77,30 @@ enum CaseSeverity: String, Codable {
 }
 
 enum CaseFilter: String, CaseIterable, Identifiable {
-    case all
+    case inbox
     case new
-    case triaged
-    case fixing
-    case verified
+    case active
+    case resolved
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .all: "All cases"
+        case .inbox: "Inbox"
         case .new: "New"
-        case .triaged: "Reviewed"
-        case .fixing: "Fixing"
-        case .verified: "Verified"
+        case .active: "Active"
+        case .resolved: "Resolved"
         }
     }
 
-    var status: CaseStatus? { CaseStatus(rawValue: rawValue) }
+    func contains(_ status: CaseStatus) -> Bool {
+        switch self {
+        case .inbox: status != .resolved
+        case .new: status == .new
+        case .active: status == .active
+        case .resolved: status == .resolved
+        }
+    }
 }
 
 enum SettingsSection: String, CaseIterable, Identifiable {
@@ -99,6 +127,38 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     }
 }
 
+enum FeedbackKind: String, CaseIterable, Identifiable {
+    case bug
+    case question
+    case feature
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .bug: "Report a bug"
+        case .question: "Ask a question"
+        case .feature: "Request a feature"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .bug: "ladybug"
+        case .question: "questionmark.bubble"
+        case .feature: "sparkles"
+        }
+    }
+
+    var prompt: String {
+        switch self {
+        case .bug: "What went wrong? What did you expect to happen?"
+        case .question: "What would you like help with?"
+        case .feature: "What would you like Signalcase to do, and why would it help?"
+        }
+    }
+}
+
 enum LogSource: String, CaseIterable, Codable, Identifiable, Hashable {
     case supabase
     case stripe
@@ -116,7 +176,7 @@ enum LogSource: String, CaseIterable, Codable, Identifiable, Hashable {
         case .render: "Render"
         case .revenueCat: "RevenueCat"
         case .sentry: "Sentry"
-        case .application: "Application"
+        case .application: "Application Logs"
         }
     }
 

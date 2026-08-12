@@ -66,6 +66,10 @@ struct RootView: View {
             SettingsSheet()
                 .environmentObject(model)
         }
+        .sheet(isPresented: $model.isFeedbackPresented) {
+            FeedbackSheet()
+                .environmentObject(model)
+        }
     }
 }
 
@@ -119,25 +123,39 @@ private struct LegacySidebarView: View {
                     .sectionLabel()
                     .padding(.horizontal, 10)
 
-                Button { model.chooseProject() } label: {
+                Menu {
+                    ForEach(model.cloudProjects) { project in
+                        Button {
+                            model.selectProject(project)
+                        } label: {
+                            if model.cloudProjectID == project.id {
+                                Label(project.name, systemImage: "checkmark")
+                            } else {
+                                Text(project.name)
+                            }
+                        }
+                    }
+                    if !model.cloudProjects.isEmpty { Divider() }
+                    Button("Create or manage projects…") { model.openSettings(.general) }
+                } label: {
                     HStack(spacing: 11) {
                         ZStack {
                             RoundedRectangle(cornerRadius: 10)
                                 .fill(SignalTheme.lime.opacity(0.12))
                                 .frame(width: 36, height: 36)
-                            Image(systemName: "folder.fill")
+                            Image(systemName: "rectangle.stack.fill")
                                 .foregroundStyle(SignalTheme.lime)
                         }
                         VStack(alignment: .leading, spacing: 2) {
                             Text(model.projectName)
                                 .font(.system(size: 11, weight: .semibold))
                                 .lineLimit(1)
-                            Text(model.linkedProjectURL == nil ? "Link source" : "Source matching enabled")
+                            Text(model.cloudProjectID == nil ? "Create a project" : "\(model.cases.count) cases")
                                 .font(.system(size: 9))
                                 .foregroundStyle(SignalTheme.muted)
                         }
                         Spacer()
-                        Image(systemName: "chevron.right")
+                        Image(systemName: "chevron.up.chevron.down")
                             .font(.system(size: 9, weight: .bold))
                             .foregroundStyle(SignalTheme.muted)
                     }
@@ -146,6 +164,7 @@ private struct LegacySidebarView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(HoverButtonStyle())
+                .menuIndicator(.hidden)
 
                 Button { model.openSettings(.connections) } label: {
                     HStack(spacing: 11) {
@@ -229,11 +248,10 @@ private struct LegacySidebarView: View {
 
     private func filterIcon(_ filter: CaseFilter) -> String {
         switch filter {
-        case .all: "square.stack.3d.up.fill"
+        case .inbox: "tray.fill"
         case .new: "circle"
-        case .triaged: "checkmark.circle"
-        case .fixing: "hammer.fill"
-        case .verified: "checkmark.seal.fill"
+        case .active: "bolt.fill"
+        case .resolved: "checkmark.circle.fill"
         }
     }
 }
@@ -450,21 +468,19 @@ private struct CaseDetailView: View {
             .menuIndicator(.hidden)
             .fixedSize()
 
-            if let next = item.status.next {
-                Button { model.advanceSelectedCase() } label: {
-                    HStack(spacing: 8) {
-                        Text(item.status.advanceActionTitle ?? next.title)
-                        Image(systemName: "arrow.right")
-                    }
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.black)
-                    .padding(.horizontal, 15)
-                    .frame(height: 34)
-                    .background(SignalTheme.lime, in: RoundedRectangle(cornerRadius: 9))
-                    .contentShape(RoundedRectangle(cornerRadius: 9))
+            Button { model.performSelectedCaseAction() } label: {
+                HStack(spacing: 8) {
+                    Text(item.status.primaryActionTitle)
+                    Image(systemName: item.status.actionSystemImage)
                 }
-                .buttonStyle(ScaleButtonStyle())
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.black)
+                .padding(.horizontal, 15)
+                .frame(height: 34)
+                .background(SignalTheme.lime, in: RoundedRectangle(cornerRadius: 9))
+                .contentShape(RoundedRectangle(cornerRadius: 9))
             }
+            .buttonStyle(ScaleButtonStyle())
         }
         .padding(.top, 18)
         .padding(.bottom, 14)
@@ -565,63 +581,24 @@ private struct CaseDetailView: View {
     }
 
     private var lowerSection: some View {
-        HStack(alignment: .top, spacing: 30) {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("Relevant code")
-                    .font(.system(size: 13, weight: .semibold))
-                if item.codeReferences.isEmpty {
-                    Text("No source path matched yet.")
-                        .font(.system(size: 11))
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Reproduce")
+                .font(.system(size: 13, weight: .semibold))
+            ForEach(Array(item.reproduction.enumerated()), id: \.offset) { index, step in
+                HStack(alignment: .top, spacing: 10) {
+                    Text("\(index + 1)")
+                        .font(.system(size: 8, weight: .black, design: .monospaced))
+                        .foregroundStyle(SignalTheme.lime)
+                        .frame(width: 20, height: 20)
+                        .background(SignalTheme.lime.opacity(0.09), in: Circle())
+                    Text(step)
+                        .font(.system(size: 10))
                         .foregroundStyle(SignalTheme.muted)
-                } else {
-                    ForEach(item.codeReferences) { reference in
-                        Button { model.openCode(reference) } label: {
-                            HStack(spacing: 11) {
-                                Image(systemName: "chevron.left.forwardslash.chevron.right")
-                                    .foregroundStyle(SignalTheme.blue)
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text("\(reference.path):\(reference.line)")
-                                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                                        .lineLimit(1)
-                                    Text(reference.reason)
-                                        .font(.system(size: 9))
-                                        .foregroundStyle(SignalTheme.muted)
-                                }
-                                Spacer()
-                                Image(systemName: "arrow.up.right")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .foregroundStyle(SignalTheme.muted)
-                            }
-                            .padding(.vertical, 11)
-                            .padding(.horizontal, 12)
-                            .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 12))
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(HoverButtonStyle())
-                    }
+                        .lineSpacing(2)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            VStack(alignment: .leading, spacing: 14) {
-                Text("Reproduce")
-                    .font(.system(size: 13, weight: .semibold))
-                ForEach(Array(item.reproduction.enumerated()), id: \.offset) { index, step in
-                    HStack(alignment: .top, spacing: 10) {
-                        Text("\(index + 1)")
-                            .font(.system(size: 8, weight: .black, design: .monospaced))
-                            .foregroundStyle(SignalTheme.lime)
-                            .frame(width: 20, height: 20)
-                            .background(SignalTheme.lime.opacity(0.09), in: Circle())
-                        Text(step)
-                            .font(.system(size: 10))
-                            .foregroundStyle(SignalTheme.muted)
-                            .lineSpacing(2)
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(maxWidth: 520, alignment: .leading)
         .padding(.top, 28)
     }
 
@@ -750,7 +727,7 @@ private struct CaptureSheet: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
     @State private var minutes = 15
-    @State private var selectedSources: Set<LogSource> = [.supabase, .stripe, .render]
+    @State private var selectedSources: Set<LogSource> = [.supabase, .render, .application]
 
     private let windows = [5, 15, 30, 60]
 
@@ -792,7 +769,7 @@ private struct CaptureSheet: View {
                 }
 
                 VStack(spacing: 0) {
-                    ForEach([LogSource.supabase, .stripe, .render, .revenueCat, .sentry, .application]) { source in
+                    ForEach([LogSource.supabase, .render, .application]) { source in
                         sourceRow(source)
                         if source != .application {
                             Rectangle().fill(SignalTheme.border).frame(height: 1).padding(.leading, 46)
@@ -972,8 +949,194 @@ private struct SettingsSheet: View {
     }
 }
 
+private struct FeedbackSheet: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var kind: FeedbackKind = .bug
+    @State private var subject = ""
+    @State private var message = ""
+    @State private var includeAppDetails = true
+    @State private var submissionError: String?
+    @State private var isSubmitting = false
+
+    private var canSubmit: Bool {
+        !subject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("FEEDBACK").sectionLabel()
+                    Text("How can we help?")
+                        .font(.system(size: 23, weight: .bold, design: .rounded))
+                    Text("Choose a type and tell us what happened.")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(SignalTheme.muted)
+                }
+                Spacer()
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(SignalTheme.muted)
+                        .frame(width: 30, height: 30)
+                        .background(SignalTheme.surface, in: Circle())
+                        .contentShape(Circle())
+                }
+                .buttonStyle(HoverButtonStyle())
+                .focusEffectDisabled()
+                .keyboardShortcut(.cancelAction)
+                .help("Close feedback")
+            }
+
+            HStack(spacing: 8) {
+                ForEach(FeedbackKind.allCases) { option in
+                    feedbackTypeButton(option)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("SUBJECT").sectionLabel()
+                TextField(subjectPlaceholder, text: $subject)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .padding(.horizontal, 13)
+                    .frame(height: 40)
+                    .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 10))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(SignalTheme.border))
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("DETAILS").sectionLabel()
+                ZStack(alignment: .topLeading) {
+                    if message.isEmpty {
+                        Text(kind.prompt)
+                            .font(.system(size: 11))
+                            .foregroundStyle(SignalTheme.muted)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 9)
+                            .allowsHitTesting(false)
+                    }
+                    TextEditor(text: $message)
+                        .font(.system(size: 11.5))
+                        .scrollContentBackground(.hidden)
+                        .padding(5)
+                }
+                .frame(minHeight: 142)
+                .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(SignalTheme.border))
+            }
+
+            Toggle(isOn: $includeAppDetails) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Include app details")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text("Adds the Signalcase version, macOS version, project name, and connected source names—not logs or credentials.")
+                        .font(.system(size: 9.5))
+                        .foregroundStyle(SignalTheme.muted)
+                }
+            }
+            .toggleStyle(.switch)
+
+            if let submissionError {
+                Label(submissionError, systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(SignalTheme.orange)
+            }
+
+            HStack(spacing: 10) {
+                Text(model.isSignedIn ? "Feedback is sent to the Signalcase team." : "Sign in to Signalcase before sending.")
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(SignalTheme.muted)
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .buttonStyle(QuietButtonStyle())
+                if !model.isSignedIn {
+                    Button(model.isCloudBusy ? "Signing in…" : "Sign in") {
+                        Task { await model.signInToSignalcase() }
+                    }
+                    .buttonStyle(QuietButtonStyle())
+                    .disabled(model.isCloudBusy)
+                }
+                Button {
+                    Task {
+                        isSubmitting = true
+                        submissionError = nil
+                        defer { isSubmitting = false }
+                        do {
+                            try await model.submitFeedback(
+                                kind: kind,
+                                subject: subject,
+                                message: message,
+                                includeAppDetails: includeAppDetails
+                            )
+                        } catch {
+                            submissionError = error.localizedDescription
+                        }
+                    }
+                } label: {
+                    if isSubmitting {
+                        HStack(spacing: 7) {
+                            ProgressView().controlSize(.small)
+                            Text("Sending…")
+                        }
+                    } else {
+                        Label("Send feedback", systemImage: "paperplane.fill")
+                    }
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(!canSubmit || !model.isSignedIn || isSubmitting)
+                .opacity(canSubmit && model.isSignedIn && !isSubmitting ? 1 : 0.42)
+            }
+        }
+        .padding(26)
+        .frame(width: 620, height: 580)
+        .background(SignalTheme.background)
+        .foregroundStyle(SignalTheme.text)
+    }
+
+    private var subjectPlaceholder: String {
+        switch kind {
+        case .bug: "Short summary of the problem"
+        case .question: "What do you need help with?"
+        case .feature: "Short name for the idea"
+        }
+    }
+
+    private func feedbackTypeButton(_ option: FeedbackKind) -> some View {
+        let selected = kind == option
+        return Button {
+            kind = option
+            submissionError = nil
+        } label: {
+            HStack(spacing: 9) {
+                Image(systemName: option.systemImage)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(selected ? SignalTheme.lime : SignalTheme.muted)
+                Text(option.title)
+                    .font(.system(size: 10.5, weight: .semibold))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(selected ? SignalTheme.text : SignalTheme.muted)
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity)
+            .frame(height: 46)
+            .background(selected ? SignalTheme.raised : SignalTheme.surface, in: RoundedRectangle(cornerRadius: 11))
+            .overlay(
+                RoundedRectangle(cornerRadius: 11)
+                    .stroke(selected ? SignalTheme.lime.opacity(0.38) : SignalTheme.border)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 11))
+        }
+        .buttonStyle(HoverButtonStyle())
+        .focusEffectDisabled()
+    }
+}
+
 private struct GeneralSettingsView: View {
     @EnvironmentObject private var model: AppModel
+    @State private var newProjectName = ""
 
     var body: some View {
         ScrollView {
@@ -1004,20 +1167,13 @@ private struct GeneralSettingsView: View {
                             }
                         }
                         rowDivider
-                        settingsRow(
-                            icon: "folder.fill",
-                            tint: SignalTheme.lime,
-                            title: model.projectName,
-                            detail: model.linkedProjectURL?.path ?? "No project folder selected",
-                            actionTitle: model.linkedProjectURL == nil ? "Choose" : "Change",
-                            action: model.chooseProject
-                        )
+                        projectManager
                         rowDivider
                         settingsRow(
                             icon: "point.3.connected.trianglepath.dotted",
                             tint: SignalTheme.blue,
                             title: model.connectedCount == 1 ? "1 connection" : "\(model.connectedCount) connections",
-                            detail: "Supabase, Render, Stripe, RevenueCat, Sentry, and app logs",
+                            detail: "Supabase, Render, and Application Logs",
                             actionTitle: "Manage"
                         ) { model.settingsSection = .connections }
                         rowDivider
@@ -1107,6 +1263,72 @@ private struct GeneralSettingsView: View {
         .background(SignalTheme.background)
     }
 
+    private var projectManager: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 13) {
+                Image(systemName: "rectangle.stack.fill")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(SignalTheme.lime)
+                    .frame(width: 28, height: 28)
+                    .background(SignalTheme.lime.opacity(0.09), in: RoundedRectangle(cornerRadius: 8))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Projects")
+                        .font(.system(size: 11.5, weight: .semibold))
+                    Text("Each project keeps separate cases, connections, and history")
+                        .font(.system(size: 9.5))
+                        .foregroundStyle(SignalTheme.muted)
+                }
+            }
+
+            if model.isSignedIn {
+                HStack(spacing: 7) {
+                    ForEach(model.cloudProjects) { project in
+                        Button {
+                            model.selectProject(project)
+                        } label: {
+                            HStack(spacing: 6) {
+                                Circle()
+                                    .fill(model.cloudProjectID == project.id ? SignalTheme.lime : SignalTheme.muted.opacity(0.45))
+                                    .frame(width: 6, height: 6)
+                                Text(project.name)
+                                    .lineLimit(1)
+                            }
+                            .font(.system(size: 9.5, weight: .semibold))
+                            .padding(.horizontal, 10)
+                            .frame(height: 32)
+                            .background(model.cloudProjectID == project.id ? SignalTheme.raised : SignalTheme.background, in: RoundedRectangle(cornerRadius: 8))
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(HoverButtonStyle())
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    TextField("New project name", text: $newProjectName)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 10.5))
+                        .padding(.horizontal, 11)
+                        .frame(height: 36)
+                        .background(SignalTheme.background, in: RoundedRectangle(cornerRadius: 9))
+                    Button("Create") {
+                        Task {
+                            if await model.createProject(named: newProjectName) {
+                                newProjectName = ""
+                            }
+                        }
+                    }
+                    .buttonStyle(QuietButtonStyle())
+                    .disabled(newProjectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isCloudBusy)
+                }
+            } else {
+                Text("Sign in above to create and switch projects.")
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(SignalTheme.muted)
+            }
+        }
+        .padding(14)
+    }
+
     private func settingsRow(
         icon: String,
         tint: Color,
@@ -1156,7 +1378,7 @@ private struct ConnectionsSettingsView: View {
                 Text("CONNECTIONS").sectionLabel()
                 Text("Evidence sources")
                     .font(.system(size: 22, weight: .bold, design: .rounded))
-                Text("Choose a source to connect or update.")
+                Text("Choose a source and follow its setup guide.")
                     .font(.system(size: 11))
                     .foregroundStyle(SignalTheme.muted)
             }
@@ -1191,83 +1413,34 @@ private struct ConnectionsSettingsView: View {
                         }
                     }
                 }
-                .frame(width: 184, height: 390)
+                .frame(width: 184)
+                .frame(maxHeight: .infinity)
 
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(selectedSource.title)
-                                .font(.system(size: 17, weight: .bold, design: .rounded))
-                            Text(integration(for: selectedSource)?.detail ?? "")
-                                .font(.system(size: 9))
-                                .foregroundStyle(SignalTheme.muted)
-                        }
-                        Spacer()
-                    }
+                VStack(spacing: 0) {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 17) {
+                            sourceHeader
+                            configurationFields
 
-                    configurationFields
-
-                    if let error = integration(for: selectedSource)?.errorMessage, !error.isEmpty {
-                        Label(error, systemImage: "exclamationmark.triangle.fill")
-                            .font(.system(size: 9))
-                            .foregroundStyle(SignalTheme.orange)
-                            .lineLimit(3)
-                    }
-
-                    Spacer()
-
-                    HStack {
-                        if selectedSource == .supabase, model.isCloudBusy {
-                            Button("Cancel browser sign-in") { model.cancelCloudAuthentication() }
-                                .buttonStyle(QuietButtonStyle())
-                        }
-                        if let state = integration(for: selectedSource)?.state,
-                           [.connected, .waitingForEvent].contains(state) {
-                            Button("Disconnect") { model.disconnect(selectedSource) }
-                                .buttonStyle(QuietButtonStyle())
-                        }
-                        Spacer()
-                        if selectedSource == .supabase {
-                            Button {
-                                Task { await model.connectSupabase() }
-                            } label: {
-                                if model.isCloudBusy {
-                                    Text("Waiting in browser…")
-                                } else {
-                                    Text(integration(for: .supabase)?.state == .connected
-                                        ? "Reconnect Supabase"
-                                        : (model.isSignedIn ? "Connect Supabase" : "Sign in & connect"))
-                                }
+                            if let error = integration(for: selectedSource)?.errorMessage, !error.isEmpty {
+                                Label(error, systemImage: "exclamationmark.triangle.fill")
+                                    .font(.system(size: 9.5, weight: .medium))
+                                    .foregroundStyle(SignalTheme.orange)
+                                    .padding(11)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(SignalTheme.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 9))
                             }
-                            .buttonStyle(PrimaryButtonStyle())
-                            .disabled(model.isCloudBusy)
-                        } else {
-                            Button {
-                                Task {
-                                    await model.saveConnection(
-                                        source: selectedSource,
-                                        token: token,
-                                        authorizationHeader: authorizationHeader,
-                                        signingSecret: signingSecret
-                                    )
-                                }
-                            } label: {
-                                Text(selectedSource == .revenueCat || selectedSource == .application ? "Start receiver" : "Save & test")
-                            }
-                            .buttonStyle(PrimaryButtonStyle())
                         }
+                        .padding(17)
                     }
+
+                    Rectangle().fill(SignalTheme.border).frame(height: 1)
+                    actionBar
+                        .padding(14)
                 }
-                .padding(16)
-                .frame(maxWidth: .infinity, minHeight: 390, alignment: .topLeading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 11))
                 .overlay { RoundedRectangle(cornerRadius: 11).stroke(SignalTheme.border) }
-            }
-
-            if selectedSource == .revenueCat || selectedSource == .application {
-                Text(model.receiverStatus)
-                    .font(.system(size: 8, design: .monospaced))
-                    .foregroundStyle(SignalTheme.muted)
             }
         }
         .padding(24)
@@ -1280,34 +1453,159 @@ private struct ConnectionsSettingsView: View {
         }
     }
 
+    private var sourceHeader: some View {
+        HStack(spacing: 12) {
+            Image(systemName: selectedSource.systemImage)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(sourceColor(selectedSource))
+                .frame(width: 38, height: 38)
+                .background(sourceColor(selectedSource).opacity(0.10), in: RoundedRectangle(cornerRadius: 11))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(selectedSource == .application ? "Application Logs" : selectedSource.title)
+                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                Text(integration(for: selectedSource)?.detail ?? "")
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(SignalTheme.muted)
+            }
+            Spacer()
+            if let integration = integration(for: selectedSource) {
+                Text(stateLabel(integration))
+                    .font(.system(size: 7.5, weight: .bold, design: .monospaced))
+                    .foregroundStyle(stateColor(integration.state))
+                    .padding(.horizontal, 9)
+                    .frame(height: 25)
+                    .background(stateColor(integration.state).opacity(0.09), in: Capsule())
+            }
+        }
+    }
+
+    private var actionBar: some View {
+        HStack(spacing: 10) {
+            if selectedSource == .application,
+               integration(for: .application)?.state == .waitingForEvent {
+                Circle().fill(SignalTheme.blue).frame(width: 6, height: 6)
+                Text(model.receiverStatus)
+                    .font(.system(size: 8.5, design: .monospaced))
+                    .foregroundStyle(SignalTheme.muted)
+                    .lineLimit(1)
+            }
+            if selectedSource == .supabase, model.isCloudBusy, model.supabaseProjects.isEmpty {
+                Button("Cancel") { model.cancelCloudAuthentication() }
+                    .buttonStyle(QuietButtonStyle())
+            }
+            if selectedSource == .supabase, !model.supabaseProjects.isEmpty {
+                Button("Cancel project selection") { model.cancelSupabaseProjectSelection() }
+                    .buttonStyle(QuietButtonStyle())
+            }
+            if let state = integration(for: selectedSource)?.state,
+               [.connected, .waitingForEvent].contains(state) {
+                Button("Disconnect") { model.disconnect(selectedSource) }
+                    .buttonStyle(QuietButtonStyle())
+            }
+            Spacer()
+            if selectedSource == .supabase, model.supabaseProjects.isEmpty {
+                Button {
+                    Task { await model.connectSupabase() }
+                } label: {
+                    Text(model.isCloudBusy
+                        ? "Waiting in browser…"
+                        : (integration(for: .supabase)?.state == .connected
+                            ? "Reconnect Supabase"
+                            : (model.isSignedIn ? "Connect Supabase" : "Sign in & connect")))
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(model.isCloudBusy)
+            } else if selectedSource == .supabase {
+                Text("Choose a project above")
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundStyle(SignalTheme.muted)
+            } else {
+                Button {
+                    Task {
+                        await model.saveConnection(
+                            source: selectedSource,
+                            token: token,
+                            authorizationHeader: authorizationHeader,
+                            signingSecret: signingSecret
+                        )
+                    }
+                } label: {
+                    Text(selectedSource == .application ? "Start listening" : "Save & test")
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(selectedSource == .application && authorizationHeader.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+    }
+
     @ViewBuilder
     private var configurationFields: some View {
         switch selectedSource {
         case .supabase:
-            setupField("PROJECT REFERENCE", "abcdefghijklmno", text: $model.configuration.supabaseProjectRef)
-            help("Find this in Supabase → Project Settings. Connect opens Supabase authorization; no access token is pasted into the app.")
-        case .sentry:
-            setupField("ORGANIZATION SLUG", "my-team", text: $model.configuration.sentryOrganization)
-            setupField("PROJECT SLUG", "my-app", text: $model.configuration.sentryProject)
-            setupField("BASE URL", "https://sentry.io", text: $model.configuration.sentryBaseURL)
-            secretField("TOKEN · EVENT:READ", "sntrys_…", text: $token)
-        case .stripe:
-            secretField("RESTRICTED KEY · EVENTS READ", "rk_live_…", text: $token)
-            help("Use a restricted key that can read Events. Signalcase never creates, refunds, or changes payments.")
+            sourceExplanation(
+                "What this adds",
+                "Database errors, authentication failures, RLS denials, and Edge Function logs. Signalcase reads logs only after you approve access in Supabase."
+            )
+            if model.supabaseProjects.isEmpty {
+                setupStep(1, "Authorize in your browser", "Connect opens Supabase in your default browser. Sign in and approve read-only access to projects and logs; no key or project ID is pasted into Signalcase.") {
+                    setupResult("Signalcase receives a short-lived OAuth token and keeps it encrypted on the server.", icon: "checkmark.shield.fill", tint: SignalTheme.lime)
+                }
+                setupStep(2, "Choose a project", "After approval, Signalcase retrieves the projects your Supabase account can access. One project is selected automatically; otherwise you choose it here.") {
+                    setupResult("Only the selected project's logs will be read.", icon: "rectangle.stack.fill", tint: SignalTheme.blue)
+                }
+            } else {
+                setupStep(2, "Choose a Supabase project", "Your account can access more than one project. Select the one that belongs to this Signalcase project.") {
+                    VStack(spacing: 7) {
+                        ForEach(model.supabaseProjects) { project in
+                            supabaseProjectButton(project)
+                        }
+                    }
+                }
+            }
         case .render:
-            setupField("WORKSPACE OWNER ID", "tea-…", text: $model.configuration.renderOwnerID)
-            setupField("SERVICE IDS · COMMA SEPARATED", "srv-…, srv-…", text: $model.configuration.renderResourceIDs)
-            secretField("API KEY", "rnd_…", text: $token)
-        case .revenueCat:
-            endpointCard("POST http://localhost:\(model.configuration.revenueCatPort)/revenuecat")
-            setupNumberField("RECEIVER PORT", value: $model.configuration.revenueCatPort)
-            secretField("REQUIRED AUTHORIZATION HEADER", "Bearer …", text: $authorizationHeader)
-            secretField("OPTIONAL SIGNING SECRET", "Webhook HMAC secret", text: $signingSecret)
-            help("Use the same authorization value in RevenueCat. HMAC signing adds replay protection. A secure tunnel can forward to this loopback-only receiver.")
+            sourceExplanation(
+                "What this adds",
+                "Runtime errors, failed requests, deploys, restarts, and release timing from the Render services you choose."
+            )
+            setupStep(1, "Create a Render API key", "In Render, open Account Settings → API Keys. Create a key and copy it now—Render only shows it once.") {
+                VStack(alignment: .leading, spacing: 9) {
+                    externalLink("Open Render API keys", "https://dashboard.render.com/u/settings#api-keys")
+                    secretField("API KEY", "rnd_…", text: $token)
+                }
+            }
+            setupStep(2, "Choose what Signalcase reads", "The owner ID identifies your workspace. Add one or more service IDs separated by commas; service IDs begin with srv-.") {
+                VStack(alignment: .leading, spacing: 9) {
+                    setupField("WORKSPACE OWNER ID", "tea-…", text: $model.configuration.renderOwnerID)
+                    setupField("SERVICE IDS", "srv-abc…, srv-def…", text: $model.configuration.renderResourceIDs)
+                }
+            }
+            setupStep(3, "Test the connection", "Save & test checks the last five minutes. Signalcase stores the API key in your Mac's Keychain.") {
+                setupResult("Only the selected services are included when you sync.", icon: "server.rack", tint: SignalTheme.purple)
+            }
         case .application:
-            endpointCard("POST http://localhost:\(model.configuration.revenueCatPort)/events")
-            secretField("REQUIRED AUTHORIZATION HEADER", "Bearer …", text: $authorizationHeader)
-            help("Send structured JSON with timestamp, level, title, message, request_id, user_id, release, and route. The request ID is what connects services exactly.")
+            sourceExplanation(
+                "What this adds",
+                "The error name, message, route, user, release, and request ID from your own code. These details help connect a generic Render 500 to the exact Supabase failure."
+            )
+            setupStep(1, "Start a protected receiver", "Signalcase listens on this Mac while the app is open. Choose a port and generate a secret that your application will send with every event.") {
+                VStack(alignment: .leading, spacing: 9) {
+                    setupNumberField("RECEIVER PORT", value: $model.configuration.revenueCatPort)
+                    copyCard("EVENT ENDPOINT", applicationEndpoint)
+                    HStack(alignment: .bottom, spacing: 8) {
+                        secretField("AUTHORIZATION HEADER", "Bearer sc_local_…", text: $authorizationHeader)
+                        Button("Generate") { generateApplicationSecret() }
+                            .buttonStyle(QuietButtonStyle())
+                    }
+                }
+            }
+            setupStep(2, "Add it to your application", "Copy these values into your local development environment. Do not commit the authorization value to Git.") {
+                copyCard("ENVIRONMENT VARIABLES", applicationEnvironment)
+            }
+            setupStep(3, "Send errors with useful context", "Post an event when your app catches an error. A shared request_id is the strongest way to connect it to Render and Supabase.") {
+                copyCard("JAVASCRIPT EXAMPLE", applicationExample)
+            }
+        case .stripe, .revenueCat, .sentry:
+            sourceExplanation("Not currently available", "This connection is hidden from the current Signalcase release.")
         }
     }
 
@@ -1338,16 +1636,159 @@ private struct ConnectionsSettingsView: View {
         }
     }
 
-    private func endpointCard(_ value: String) -> some View {
-        Text(value)
-            .font(.system(size: 10, weight: .semibold, design: .monospaced))
-            .foregroundStyle(SignalTheme.blue)
-            .padding(.horizontal, 10).frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
-            .background(SignalTheme.blue.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
+    private func sourceExplanation(_ title: String, _ detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title.uppercased()).sectionLabel()
+            Text(detail)
+                .font(.system(size: 10))
+                .foregroundStyle(SignalTheme.muted)
+                .lineSpacing(2)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(SignalTheme.raised, in: RoundedRectangle(cornerRadius: 10))
     }
 
-    private func help(_ value: String) -> some View {
-        Text(value).font(.system(size: 9)).foregroundStyle(SignalTheme.muted).lineSpacing(2)
+    private func setupStep<Content: View>(
+        _ number: Int,
+        _ title: String,
+        _ detail: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text("\(number)")
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .foregroundStyle(.black)
+                .frame(width: 22, height: 22)
+                .background(SignalTheme.lime, in: Circle())
+            VStack(alignment: .leading, spacing: 9) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.system(size: 11.5, weight: .semibold))
+                    Text(detail)
+                        .font(.system(size: 9.25))
+                        .foregroundStyle(SignalTheme.muted)
+                        .lineSpacing(2)
+                }
+                content()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func externalLink(_ title: String, _ value: String) -> some View {
+        Button {
+            guard let url = URL(string: value) else { return }
+            NSWorkspace.shared.open(url)
+        } label: {
+            Label(title, systemImage: "arrow.up.right")
+        }
+        .buttonStyle(QuietButtonStyle())
+    }
+
+    private func supabaseProjectButton(_ project: SupabaseProjectOption) -> some View {
+        Button {
+            Task { await model.chooseSupabaseProject(project) }
+        } label: {
+            HStack(spacing: 11) {
+                Image(systemName: "cylinder.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(SignalTheme.lime)
+                    .frame(width: 28, height: 28)
+                    .background(SignalTheme.lime.opacity(0.09), in: RoundedRectangle(cornerRadius: 8))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(project.name)
+                        .font(.system(size: 11, weight: .semibold))
+                    Text([project.organizationSlug, project.region]
+                        .compactMap { $0 }
+                        .joined(separator: " · "))
+                        .font(.system(size: 8.5))
+                        .foregroundStyle(SignalTheme.muted)
+                }
+                Spacer()
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(SignalTheme.muted)
+            }
+            .padding(.horizontal, 11)
+            .frame(height: 48)
+            .background(SignalTheme.raised, in: RoundedRectangle(cornerRadius: 9))
+            .contentShape(RoundedRectangle(cornerRadius: 9))
+        }
+        .buttonStyle(HoverButtonStyle())
+        .focusEffectDisabled()
+        .disabled(model.isCloudBusy)
+    }
+
+    private func setupResult(_ text: String, icon: String, tint: Color) -> some View {
+        Label(text, systemImage: icon)
+            .font(.system(size: 9.25))
+            .foregroundStyle(SignalTheme.muted)
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(tint.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func copyCard(_ label: String, _ value: String) -> some View {
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(value, forType: .string)
+            model.showToast("Copied to clipboard")
+        } label: {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack {
+                    Text(label).sectionLabel()
+                    Spacer()
+                    Label("Copy", systemImage: "doc.on.doc")
+                        .font(.system(size: 8.5, weight: .semibold))
+                        .foregroundStyle(SignalTheme.blue)
+                }
+                Text(value)
+                    .font(.system(size: 8.5, design: .monospaced))
+                    .foregroundStyle(SignalTheme.text.opacity(0.78))
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(6)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(SignalTheme.background.opacity(0.7), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(SignalTheme.border))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(HoverButtonStyle())
+        .focusEffectDisabled()
+    }
+
+    private var applicationEndpoint: String {
+        "http://127.0.0.1:\(model.configuration.revenueCatPort)/events"
+    }
+
+    private var applicationAuthorization: String {
+        let clean = authorizationHeader.trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean.isEmpty ? "Bearer YOUR_GENERATED_SECRET" : clean
+    }
+
+    private var applicationEnvironment: String {
+        "SIGNALCASE_EVENTS_URL=\(applicationEndpoint)\nSIGNALCASE_AUTHORIZATION=\(applicationAuthorization)"
+    }
+
+    private var applicationExample: String {
+        """
+        await fetch(process.env.SIGNALCASE_EVENTS_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json",
+            "Authorization": process.env.SIGNALCASE_AUTHORIZATION },
+          body: JSON.stringify({ level: "error", title: error.name,
+            message: error.message, request_id: requestId,
+            user_id: userId, route: request.url,
+            timestamp: new Date().toISOString() })
+        });
+        """
+    }
+
+    private func generateApplicationSecret() {
+        let value = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        authorizationHeader = "Bearer sc_local_\(value)"
     }
 
     private func integration(for source: LogSource) -> Integration? {
@@ -1355,7 +1796,10 @@ private struct ConnectionsSettingsView: View {
     }
 
     private func stateLabel(_ integration: Integration) -> String {
-        switch integration.state {
+        if integration.source == .supabase, !model.supabaseProjects.isEmpty {
+            return "CHOOSE A PROJECT"
+        }
+        return switch integration.state {
         case .connected: integration.eventCount > 0 ? "CONNECTED · \(integration.eventCount) EVENTS" : "CONNECTED"
         case .waitingForEvent: "WAITING FOR WEBHOOK"
         case .syncing: "CHECKING…"
@@ -1516,9 +1960,8 @@ private extension View {
 private func color(for status: CaseStatus) -> Color {
     switch status {
     case .new: SignalTheme.orange
-    case .triaged: SignalTheme.yellow
-    case .fixing: SignalTheme.blue
-    case .verified: SignalTheme.lime
+    case .active: SignalTheme.blue
+    case .resolved: SignalTheme.lime
     }
 }
 

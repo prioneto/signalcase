@@ -21,8 +21,8 @@ enum CredentialStoreError: LocalizedError {
 enum CredentialStore {
     private static let service = "app.signalcase.integrations"
 
-    static func save(_ value: String, source: LogSource, kind: CredentialKind) throws {
-        let account = account(source: source, kind: kind)
+    static func save(_ value: String, source: LogSource, kind: CredentialKind, projectID: UUID? = nil) throws {
+        let account = account(source: source, kind: kind, projectID: projectID)
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -39,11 +39,11 @@ enum CredentialStore {
         guard status == errSecSuccess else { throw CredentialStoreError.keychain(status) }
     }
 
-    static func load(source: LogSource, kind: CredentialKind = .apiToken) -> String? {
+    static func load(source: LogSource, kind: CredentialKind = .apiToken, projectID: UUID? = nil) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account(source: source, kind: kind),
+            kSecAttrAccount as String: account(source: source, kind: kind, projectID: projectID),
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
@@ -54,19 +54,32 @@ enum CredentialStore {
         return String(data: data, encoding: .utf8)
     }
 
-    static func remove(source: LogSource) {
+    static func remove(source: LogSource, projectID: UUID? = nil) {
         for kind in CredentialKind.allCases {
             let query: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: service,
-                kSecAttrAccount as String: account(source: source, kind: kind)
+                kSecAttrAccount as String: account(source: source, kind: kind, projectID: projectID)
             ]
             SecItemDelete(query as CFDictionary)
         }
     }
 
-    private static func account(source: LogSource, kind: CredentialKind) -> String {
-        "\(source.rawValue).\(kind.rawValue)"
+    static func migrateLegacyCredentials(to projectID: UUID) {
+        for source in LogSource.allCases {
+            for kind in CredentialKind.allCases {
+                guard load(source: source, kind: kind, projectID: projectID) == nil,
+                      let value = load(source: source, kind: kind) else { continue }
+                try? save(value, source: source, kind: kind, projectID: projectID)
+            }
+        }
+    }
+
+    private static func account(source: LogSource, kind: CredentialKind, projectID: UUID?) -> String {
+        if let projectID {
+            return "\(projectID.uuidString.lowercased()).\(source.rawValue).\(kind.rawValue)"
+        }
+        return "\(source.rawValue).\(kind.rawValue)"
     }
 }
 

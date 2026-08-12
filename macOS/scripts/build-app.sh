@@ -27,6 +27,7 @@ SUPABASE_PUBLISHABLE_KEY="${SUPABASE_PUBLISHABLE_KEY:-$(read_env_value NEXT_PUBL
 CLOUD_URL="${SIGNALCASE_CLOUD_URL:-$(read_env_value SIGNALCASE_CLOUD_URL "${BUILD_ENV_FILE}")}"
 CLOUD_URL="${CLOUD_URL:-$(read_env_value NEXT_PUBLIC_SITE_URL "${WEBSITE_ENV_FILE}")}"
 CLOUD_URL="${CLOUD_URL:-http://localhost:3002}"
+SIGNING_IDENTITY="${SIGNALCASE_CODESIGN_IDENTITY:-$(read_env_value SIGNALCASE_CODESIGN_IDENTITY "${BUILD_ENV_FILE}")}"
 
 if [[ -z "${SUPABASE_URL}" || -z "${SUPABASE_PUBLISHABLE_KEY}" ]]; then
     print -u2 "Missing public app configuration. Copy .env.build.example to .env.build and fill it in."
@@ -58,7 +59,21 @@ plutil -insert SignalcaseSupabaseURL -string "${SUPABASE_URL}" "${INFO_PLIST}"
 plutil -insert SignalcaseSupabasePublishableKey -string "${SUPABASE_PUBLISHABLE_KEY}" "${INFO_PLIST}"
 
 xattr -cr "${APP_DIR}"
-codesign --force --sign - "${APP_DIR}" >/dev/null
+
+if [[ -z "${SIGNING_IDENTITY}" ]]; then
+    if [[ "${CONFIGURATION}" == "release" ]]; then
+        SIGNING_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | sed -n 's/.*"\(Developer ID Application:.*\)"/\1/p' | head -1)"
+    fi
+    SIGNING_IDENTITY="${SIGNING_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null | sed -n 's/.*"\(Apple Development:.*\)"/\1/p' | head -1)}"
+fi
+
+if [[ -n "${SIGNING_IDENTITY}" ]]; then
+    codesign --force --options runtime --sign "${SIGNING_IDENTITY}" "${APP_DIR}" >/dev/null
+    print "Signed with ${SIGNING_IDENTITY}"
+else
+    codesign --force --sign - "${APP_DIR}" >/dev/null
+    print -u2 "Warning: no Apple code-signing identity was found. Keychain access may be requested again after each rebuild."
+fi
 
 print "Built ${APP_DIR}"
 

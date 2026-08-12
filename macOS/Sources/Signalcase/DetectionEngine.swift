@@ -42,7 +42,7 @@ enum SignalDetector {
         )
     }
 
-    static func detect(events: [LogEvent], projectRoot: URL?, startingNumber: Int) -> DetectionResult {
+    static func detect(events: [LogEvent], startingNumber: Int) -> DetectionResult {
         let uniqueEvents = deduplicated(events)
         let candidates = uniqueEvents.filter(isCandidate)
         var usedCandidateIDs = Set<UUID>()
@@ -80,7 +80,6 @@ enum SignalDetector {
             let affectedUsers = Set(sameFingerprint.compactMap(\.userID)).count
             let firstSeen = sameFingerprint.map(\.timestamp).min() ?? anchor.timestamp
             let lastSeen = sameFingerprint.map(\.timestamp).max() ?? anchor.timestamp
-            let references = RepositoryMatcher.match(events: correlated, root: projectRoot)
             let findings = findings(for: anchor, related: correlated, occurrenceCount: occurrenceCount, affectedUsers: affectedUsers)
             let title = caseTitle(for: anchor)
 
@@ -102,7 +101,7 @@ enum SignalDetector {
                     fingerprint: anchor.fingerprint,
                     events: correlated,
                     findings: findings,
-                    codeReferences: references,
+                    codeReferences: [],
                     reproduction: reproduction(for: anchor, related: correlated),
                     detectionNote: detectionNote(for: correlated)
                 )
@@ -181,7 +180,7 @@ enum SignalDetector {
             ?? events.filter(isCandidate).max(by: { $0.timestamp < $1.timestamp })
 
         combined.events = events
-        combined.status = moreAdvancedStatus(left.status, right.status)
+        combined.status = statusAfterMerge(left, right)
         combined.severity = moreSevere(left.severity, right.severity)
         combined.occurrenceCount = max(max(left.occurrenceCount, right.occurrenceCount), primaryOccurrences)
         combined.affectedUsers = max(max(left.affectedUsers, right.affectedUsers), affectedUsers)
@@ -268,8 +267,14 @@ enum SignalDetector {
         }
     }
 
+    private static func statusAfterMerge(_ left: SignalCase, _ right: SignalCase) -> CaseStatus {
+        if left.status == .resolved, right.lastSeen > left.lastSeen { return .new }
+        if right.status == .resolved, left.lastSeen > right.lastSeen { return .new }
+        return moreAdvancedStatus(left.status, right.status)
+    }
+
     private static func moreAdvancedStatus(_ left: CaseStatus, _ right: CaseStatus) -> CaseStatus {
-        let order: [CaseStatus] = [.new, .triaged, .fixing, .verified]
+        let order: [CaseStatus] = [.new, .active, .resolved]
         return (order.firstIndex(of: left) ?? 0) >= (order.firstIndex(of: right) ?? 0) ? left : right
     }
 
@@ -510,100 +515,3 @@ private extension LogEvent {
     }
 }
 
-enum RepositoryMatcher {
-    private static let extensions = Set(["swift", "ts", "tsx", "js", "jsx", "py", "rb", "go", "rs", "kt", "java", "sql"])
-
-    static func match(events: [LogEvent], root: URL?) -> [CodeReference] {
-        guard let root else { return directReferences(in: events, root: nil) }
-        var output = directReferences(in: events, root: root)
-        if output.count >= 3 { return Array(output.prefix(3)) }
-
-        let tokens = searchTokens(events)
-        guard !tokens.isEmpty,
-              let enumerator = FileManager.default.enumerator(
-                at: root,
-                includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
-                options: [.skipsHiddenFiles, .skipsPackageDescendants]
-              ) else { return output }
-
-        var inspected = 0
-        while let url = enumerator.nextObject() as? URL, inspected < 1_500, output.count < 3 {
-            if ["node_modules", ".build", "dist", ".next", "Pods"].contains(where: url.pathComponents.contains) {
-                enumerator.skipDescendants()
-                continue
-            }
-            guard extensions.contains(url.pathExtension.lowercased()),
-                  let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
-                  values.isRegularFile == true,
-                  (values.fileSize ?? 0) < 600_000,
-                  let contents = try? String(contentsOf: url, encoding: .utf8) else { continue }
-            inspected += 1
-
-            for token in tokens where contents.localizedCaseInsensitiveContains(token) {
-                let line = contents.prefix(upTo: contents.range(of: token, options: .caseInsensitive)!.lowerBound)
-                    .reduce(into: 1) { count, character in if character == "\n" { count += 1 } }
-                let path = url.path.replacingOccurrences(of: root.path + "/", with: "")
-                let reference = CodeReference(path: path, line: line, reason: "Contains \(token) from the captured error")
-                if !output.contains(where: { $0.id == reference.id }) { output.append(reference) }
-                break
-            }
-        }
-        return Array(output.prefix(3))
-    }
-
-    private static func directReferences(in events: [LogEvent], root: URL?) -> [CodeReference] {
-        let pattern = #"([A-Za-z0-9_./-]+\.(?:swift|tsx?|jsx?|py|rb|go|rs|kt|java|sql)):(\d+)"#
-        let regex = try! NSRegularExpression(pattern: pattern)
-        var output: [CodeReference] = []
-        for event in events {
-            let text = "\(event.title) \(event.detail)"
-            let range = NSRange(text.startIndex..., in: text)
-            for match in regex.matches(in: text, range: range) {
-                guard let pathRange = Range(match.range(at: 1), in: text),
-                      let lineRange = Range(match.range(at: 2), in: text),
-                      let line = Int(text[lineRange]) else { continue }
-                let path = String(text[pathRange])
-                if let root, !FileManager.default.fileExists(atPath: root.appendingPathComponent(path).path) { continue }
-                let reference = CodeReference(path: path, line: line, reason: "Stack frame from \(event.source.title)")
-                if !output.contains(where: { $0.id == reference.id }) { output.append(reference) }
-            }
-        }
-        return output
-    }
-
-    private static func searchTokens(_ events: [LogEvent]) -> [String] {
-        let joined = events.map { "\($0.title) \($0.detail)" }.joined(separator: " ")
-        let patterns = [
-            #"(?i)(?:table|column|relation|policy|function)\s+[\"']?([a-zA-Z_][a-zA-Z0-9_.]*)"#,
-            #"\b(PGRST\d{3})\b"#,
-            #"(?i)\bSQLSTATE\s*[:=]?\s*([0-9A-Z]{5})\b"#
-        ]
-        var tokens: [String] = []
-        let ignored = Set(["begin", "error", "fatal", "panic", "public", "statement"])
-
-        for event in events {
-            if let sqlState = event.metadata["sqlState"]?.uppercased(),
-               sqlState.count == 5,
-               !sqlState.hasPrefix("00"),
-               !tokens.contains(sqlState) {
-                tokens.append(sqlState)
-            }
-        }
-        for pattern in patterns {
-            let regex = try! NSRegularExpression(pattern: pattern)
-            let range = NSRange(joined.startIndex..., in: joined)
-            for match in regex.matches(in: joined, range: range) {
-                let group = match.numberOfRanges > 1 ? 1 : 0
-                if let tokenRange = Range(match.range(at: group), in: joined) {
-                    let token = String(joined[tokenRange])
-                    if token.count >= 3,
-                       !ignored.contains(token.lowercased()),
-                       !tokens.contains(token) {
-                        tokens.append(token)
-                    }
-                }
-            }
-        }
-        return Array(tokens.prefix(5))
-    }
-}

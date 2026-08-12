@@ -16,11 +16,54 @@ final class SignalcaseTests: XCTestCase {
         XCTAssertEqual(first, second)
     }
 
-    func testWorkflowOnlyMovesForward() {
-        XCTAssertEqual(CaseStatus.new.next, .triaged)
-        XCTAssertEqual(CaseStatus.triaged.next, .fixing)
-        XCTAssertEqual(CaseStatus.fixing.next, .verified)
-        XCTAssertNil(CaseStatus.verified.next)
+    func testWorkflowActionsHaveUsefulDestinations() {
+        XCTAssertEqual(CaseStatus.new.actionDestination, .active)
+        XCTAssertEqual(CaseStatus.active.actionDestination, .resolved)
+        XCTAssertEqual(CaseStatus.resolved.actionDestination, .active)
+    }
+
+    func testLegacyWorkflowStatusesDecodeIntoTheSimplerLifecycle() throws {
+        let decoder = JSONDecoder()
+        XCTAssertEqual(try decoder.decode(CaseStatus.self, from: Data("\"triaged\"".utf8)), .active)
+        XCTAssertEqual(try decoder.decode(CaseStatus.self, from: Data("\"fixing\"".utf8)), .active)
+        XCTAssertEqual(try decoder.decode(CaseStatus.self, from: Data("\"verified\"".utf8)), .resolved)
+    }
+
+    func testResolvedCaseReopensOnlyForANewerOccurrence() {
+        let now = Date()
+        let first = LogEvent(
+            timestamp: now,
+            source: .application,
+            level: .error,
+            title: "Profile failed to load",
+            detail: "request failed",
+            fingerprint: "app:profile-load"
+        )
+        let initialDetection = SignalDetector.detect(events: [first], startingNumber: 0)
+        var resolved = initialDetection.cases[0]
+        resolved.status = .resolved
+
+        let duplicateSync = SignalDetector.merge(detected: initialDetection.cases, into: [resolved])
+        XCTAssertEqual(duplicateSync.first?.status, .resolved)
+
+        let recurrence = LogEvent(
+            timestamp: now.addingTimeInterval(60),
+            source: .application,
+            level: .error,
+            title: "Profile failed to load",
+            detail: "request failed again",
+            fingerprint: "app:profile-load"
+        )
+        let recurrenceDetection = SignalDetector.detect(
+            events: [first, recurrence],
+            startingNumber: 1
+        )
+        let reopened = SignalDetector.merge(detected: recurrenceDetection.cases, into: [resolved])
+
+        XCTAssertEqual(reopened.count, 1)
+        XCTAssertEqual(reopened.first?.status, .new)
+        XCTAssertEqual(reopened.first?.id, resolved.id)
+        XCTAssertEqual(reopened.first?.occurrenceCount, 2)
     }
 
     @MainActor
@@ -104,7 +147,7 @@ final class SignalcaseTests: XCTestCase {
 
         let events = SupabaseProvider.normalize(payload)
         XCTAssertEqual(events.map(\.level), [.info, .info, .info])
-        XCTAssertEqual(SignalDetector.detect(events: events, projectRoot: nil, startingNumber: 0).cases.count, 0)
+        XCTAssertEqual(SignalDetector.detect(events: events, startingNumber: 0).cases.count, 0)
     }
 
     func testSupabaseUnstructured500IsAnError() {
@@ -118,7 +161,7 @@ final class SignalcaseTests: XCTestCase {
         ]])
 
         XCTAssertEqual(events.first?.level, .error)
-        XCTAssertEqual(SignalDetector.detect(events: events, projectRoot: nil, startingNumber: 0).cases.count, 1)
+        XCTAssertEqual(SignalDetector.detect(events: events, startingNumber: 0).cases.count, 1)
     }
 
     func testPreviouslySavedSupabaseSuccessIsReclassified() {
@@ -167,7 +210,7 @@ final class SignalcaseTests: XCTestCase {
 
         XCTAssertEqual(events.first?.level, .info)
         XCTAssertFalse(events.first.map(SignalDetector.isCandidate) ?? true)
-        XCTAssertEqual(SignalDetector.detect(events: events, projectRoot: nil, startingNumber: 0).cases.count, 0)
+        XCTAssertEqual(SignalDetector.detect(events: events, startingNumber: 0).cases.count, 0)
     }
 
     func testStructuredSupabaseDashboardErrorIsStillACase() {
@@ -183,7 +226,7 @@ final class SignalcaseTests: XCTestCase {
 
         XCTAssertEqual(events.first?.level, .error)
         XCTAssertTrue(events.first.map(SignalDetector.isCandidate) ?? false)
-        XCTAssertEqual(SignalDetector.detect(events: events, projectRoot: nil, startingNumber: 0).cases.count, 1)
+        XCTAssertEqual(SignalDetector.detect(events: events, startingNumber: 0).cases.count, 1)
     }
 
     func testPersistedDashboardQueryAndGenericBeginDoNotCreateEvidence() throws {
@@ -210,16 +253,6 @@ final class SignalcaseTests: XCTestCase {
         let migrated = SupabaseProvider.reclassifyPersisted(old)
         XCTAssertEqual(migrated.level, .info)
         XCTAssertFalse(SignalDetector.isCandidate(migrated))
-
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try "func unrelated() { /* BEGIN */ }".write(
-            to: root.appendingPathComponent("page.tsx"),
-            atomically: true,
-            encoding: .utf8
-        )
-        XCTAssertTrue(RepositoryMatcher.match(events: [migrated], root: root).isEmpty)
     }
 
     func testMergeDropsCasesNoLongerBackedByDetectedFailures() {
@@ -231,7 +264,6 @@ final class SignalcaseTests: XCTestCase {
                 title: "Test failure",
                 detail: "A real detected failure"
             )],
-            projectRoot: nil,
             startingNumber: 0
         ).cases[0]
         XCTAssertTrue(SignalDetector.merge(detected: [], into: [stale]).isEmpty)
@@ -363,7 +395,7 @@ final class SignalcaseTests: XCTestCase {
             LogEvent(timestamp: now.addingTimeInterval(2), source: .sentry, level: .error, title: "ProfileBootstrapError", detail: "request failed", requestID: "req_17", route: "/profile")
         ]
 
-        let result = SignalDetector.detect(events: events, projectRoot: nil, startingNumber: 0)
+        let result = SignalDetector.detect(events: events, startingNumber: 0)
         XCTAssertEqual(result.cases.count, 1)
         XCTAssertEqual(Set(result.cases[0].events.map(\.source)), Set([.application, .supabase, .sentry]))
         XCTAssertTrue(result.cases[0].events.allSatisfy { $0.correlation == .exactID })
@@ -415,12 +447,11 @@ final class SignalcaseTests: XCTestCase {
         ]
         let firstDetection = SignalDetector.detect(
             events: [deploy] + renderEvents,
-            projectRoot: nil,
             startingNumber: 0
         )
         XCTAssertEqual(firstDetection.cases.count, 1)
         var existing = firstDetection.cases[0]
-        existing.status = .triaged
+        existing.status = .active
 
         let supabase = LogEvent(
             timestamp: now.addingTimeInterval(180),
@@ -435,7 +466,6 @@ final class SignalcaseTests: XCTestCase {
         )
         let secondDetection = SignalDetector.detect(
             events: [deploy] + renderEvents + [supabase],
-            projectRoot: nil,
             startingNumber: 1
         )
         XCTAssertEqual(secondDetection.cases.count, 2, "The detector fixture should expose the overlapping-case scenario")
@@ -445,7 +475,7 @@ final class SignalcaseTests: XCTestCase {
         XCTAssertEqual(merged.count, 1)
         XCTAssertEqual(merged[0].id, existing.id)
         XCTAssertEqual(merged[0].reference, existing.reference)
-        XCTAssertEqual(merged[0].status, .triaged)
+        XCTAssertEqual(merged[0].status, .active)
         XCTAssertEqual(merged[0].title, "Render service error")
         XCTAssertEqual(merged[0].occurrenceCount, 3)
         XCTAssertEqual(Set(merged[0].sources), Set([.render, .supabase]))
@@ -466,7 +496,7 @@ final class SignalcaseTests: XCTestCase {
             LogEvent(timestamp: now.addingTimeInterval(1), source: .supabase, level: .error, title: "Database unavailable", detail: "connection timeout")
         ]
 
-        let result = SignalDetector.detect(events: events, projectRoot: nil, startingNumber: 0)
+        let result = SignalDetector.detect(events: events, startingNumber: 0)
         XCTAssertEqual(result.cases.first?.events.first?.correlation, .timeWindow)
         XCTAssertEqual(result.cases.first?.detectionNote, "1 event matches the error fingerprint; 1 is time-based context.")
     }
@@ -532,8 +562,7 @@ final class SignalcaseTests: XCTestCase {
         let workspace = PersistedWorkspace(
             cases: [],
             events: [],
-            configuration: .empty,
-            projectPath: nil
+            configuration: .empty
         )
         let encoder = JSONEncoder()
         let data = try encoder.encode(workspace)

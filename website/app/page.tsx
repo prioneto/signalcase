@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-type Source = "SB" | "ST" | "RD" | "RC" | "SN";
+type Source = "SB" | "RD" | "APP";
 
 type ProductCase = {
   id: string;
@@ -21,46 +21,47 @@ type ProductCase = {
 const productPreviewCases: ProductCase[] = [
   {
     id: "SIG-104",
-    title: "Checkout webhook fails after the latest deploy",
+    title: "Profile writes fail after the latest deploy",
     status: "NEW",
     severity: "CRITICAL",
     occurrences: 12,
     users: 7,
-    sources: ["RD", "ST", "SB"],
-    summary: "Stripe completes the payment, but the webhook fails before Supabase grants access.",
+    sources: ["RD", "APP", "SB"],
+    summary: "The new release reaches production, then Supabase begins rejecting profile writes with a missing customer ID.",
     findings: [
-      { tone: "good", title: "Payment succeeded", body: "Stripe completed checkout and emitted evt_731." },
-      { tone: "bad", title: "Application processing failed", body: "Supabase rejected a null customer_id and the webhook returned 500." },
+      { tone: "good", title: "Deployment completed", body: "Render marked release 9f3a1b live before the first failure." },
+      { tone: "bad", title: "Database write failed", body: "Supabase rejected a null customer_id in every matching request." },
       { tone: "warn", title: "Started after deploy 9f3a1b", body: "The first matching failure appeared seven minutes after release." },
     ],
     events: [
       { time: "14:28:04", source: "RD", title: "Deploy 9f3a1b became live", detail: "fitref-web · production" },
-      { time: "14:35:22", source: "ST", title: "checkout.session.completed", detail: "€19.99 · evt_731 · req_91d" },
-      { time: "14:35:24", source: "SB", title: "Profile update rejected", detail: "23502 · null value in customer_id" },
-      { time: "14:35:25", source: "ST", title: "Webhook returned 500", detail: "Endpoint scheduled for retry" },
+      { time: "14:35:22", source: "RD", title: "POST /api/profile returned 500", detail: "fitref-web · req_91d" },
+      { time: "14:35:23", source: "APP", title: "ProfileWriteError", detail: "Missing customer ID · req_91d" },
+      { time: "14:35:24", source: "SB", title: "Profile update rejected", detail: "23502 · null value in customer_id · req_91d" },
+      { time: "14:35:25", source: "RD", title: "Request failed", detail: "DatabaseError · req_91d" },
     ],
-    code: "app/api/webhooks/stripe/route.ts:184",
+    code: "app/api/profile/route.ts:184",
   },
   {
     id: "SIG-103",
-    title: "Renewed subscribers are not receiving Pro access",
+    title: "Nightly import exceeds the request timeout",
     status: "TRIAGED",
     severity: "HIGH",
     occurrences: 8,
     users: 8,
-    sources: ["RC", "SB"],
-    summary: "RevenueCat records a successful renewal, but the Supabase entitlement remains expired.",
+    sources: ["RD", "SB"],
+    summary: "A Render worker repeatedly times out while Supabase is processing the same large import query.",
     findings: [
-      { tone: "good", title: "Renewal is valid", body: "The production event contains the expected Pro entitlement." },
-      { tone: "bad", title: "Sync function timed out", body: "All affected users share a five-second Edge Function timeout." },
-      { tone: "warn", title: "Event can be retried", body: "The stable event ID has no corresponding successful database write." },
+      { tone: "good", title: "Worker starts normally", body: "Render starts the scheduled job with the expected release." },
+      { tone: "bad", title: "Database query runs too long", body: "Supabase records the same statement until the worker timeout is reached." },
+      { tone: "warn", title: "The failure repeats nightly", body: "Three consecutive scheduled runs have the same fingerprint." },
     ],
     events: [
-      { time: "11:04:12", source: "RC", title: "RENEWAL", detail: "pro_monthly · usr_844 · rc_evt_54" },
-      { time: "11:04:17", source: "SB", title: "Edge Function timed out", detail: "subscription-sync exceeded 5 seconds" },
-      { time: "11:04:39", source: "SB", title: "Entitlement remained expired", detail: "profiles.pro_until was not updated" },
+      { time: "02:00:00", source: "RD", title: "Scheduled import started", detail: "analytics-worker · release 28cc04" },
+      { time: "02:00:17", source: "SB", title: "Import query still running", detail: "statement exceeded 15 seconds" },
+      { time: "02:00:30", source: "RD", title: "Worker request timed out", detail: "Job exceeded its 30-second limit" },
     ],
-    code: "supabase/functions/revenuecat-webhook/index.ts:96",
+    code: "workers/nightly-import.ts:96",
   },
   {
     id: "SIG-101",
@@ -69,17 +70,17 @@ const productPreviewCases: ProductCase[] = [
     severity: "HIGH",
     occurrences: 31,
     users: 14,
-    sources: ["SB", "SN"],
+    sources: ["SB", "RD"],
     summary: "Invited members can authenticate, but their first profile request is rejected by RLS.",
     findings: [
       { tone: "good", title: "Authentication works", body: "Every affected request follows a successful login." },
       { tone: "bad", title: "One RLS policy rejects members", body: "Owners succeed while role=member receives SQLSTATE 42501." },
-      { tone: "warn", title: "Fix branch linked", body: "A policy update is ready for local verification." },
+      { tone: "warn", title: "API returns the same error", body: "Render records a 403 for each rejected Supabase request." },
     ],
     events: [
       { time: "09:17:21", source: "SB", title: "Auth login succeeded", detail: "email provider · usr_101" },
       { time: "09:17:23", source: "SB", title: "RLS policy denied profile read", detail: "42501 · permission denied" },
-      { time: "09:17:24", source: "SN", title: "ProfileBootstrapError", detail: "14 affected users · release 28cc04" },
+      { time: "09:17:24", source: "RD", title: "GET /api/profile returned 403", detail: "14 affected users · release 28cc04" },
     ],
     code: "supabase/migrations/team_profile_policy.sql:23",
   },
@@ -87,10 +88,8 @@ const productPreviewCases: ProductCase[] = [
 
 const sourceName: Record<Source, string> = {
   SB: "Supabase",
-  ST: "Stripe",
   RD: "Render",
-  RC: "RevenueCat",
-  SN: "Sentry",
+  APP: "Application",
 };
 
 export default function Home() {
@@ -117,7 +116,7 @@ export default function Home() {
         <div className="hero-copy">
           <div className="eyebrow"><span className="live-dot" /> NATIVE BUG EVIDENCE FOR SMALL TEAMS</div>
           <h1>Your logs already know <em>what broke.</em></h1>
-          <p>Signalcase connects the events around a failure and hands developers one compact, reproducible case—without searching five dashboards.</p>
+          <p>Signalcase connects the events around a failure and hands developers one compact, reproducible case—without searching separate dashboards.</p>
           <div className="hero-actions">
             <a className="primary" href="#preview">See Signalcase <span>→</span></a>
             <a className="secondary" href="#workflow">See how it works</a>
@@ -138,9 +137,8 @@ export default function Home() {
             <strong>1 CASE</strong>
           </div>
           <span className="orbit-node node-one source-sb">SB</span>
-          <span className="orbit-node node-two source-st">ST</span>
           <span className="orbit-node node-three source-rd">RD</span>
-          <span className="orbit-node node-four source-rc">RC</span>
+          <span className="orbit-node node-four source-app">APP</span>
         </div>
       </section>
 
@@ -161,7 +159,7 @@ export default function Home() {
             <button className="side-nav"><span>Fixing</span><b>{cases.filter((item) => item.status === "FIXING").length}</b></button>
             <div className="side-bottom">
               <small>PROJECT</small>
-              <div className="project-card"><span>▰</span><div><b>fitref</b><p>Source linked</p></div></div>
+              <div className="project-card"><span>▰</span><div><b>fitref</b><p>{cases.length} cases</p></div></div>
             </div>
           </aside>
 
@@ -230,7 +228,7 @@ export default function Home() {
       <section className="sources shell" id="sources">
         <div className="source-copy"><span>02 / SOURCES</span><h2>One failure.<br />Every trace.</h2><p>Start with read-only integrations. Add an always-on webhook collector only when the team needs production capture while every Mac is asleep.</p></div>
         <div className="source-grid">
-          {[{ code: "SB", name: "Supabase", text: "Auth, Postgres, RLS, Storage and Edge Functions" }, { code: "ST", name: "Stripe", text: "Events, payments and failed webhook deliveries" }, { code: "RD", name: "Render", text: "Deploys, restarts, workers and service logs" }, { code: "RC", name: "RevenueCat", text: "Purchases, renewals, billing and entitlements" }, { code: "SN", name: "Sentry", text: "Exceptions, releases and affected users" }].map((source) => (
+          {[{ code: "SB", name: "Supabase", text: "Auth, Postgres, RLS, Storage and Edge Functions" }, { code: "RD", name: "Render", text: "Deploys, restarts, workers and service logs" }, { code: "APP", name: "Application Logs", text: "Errors, routes, releases, users and request IDs from your code" }].map((source) => (
             <article key={source.code}><SourceBadge source={source.code as Source} /><div><h3>{source.name}</h3><p>{source.text}</p></div><span>↗</span></article>
           ))}
         </div>

@@ -7,16 +7,12 @@ import {
   sha256,
 } from "@/lib/supabase-management";
 
-type Body = { projectId?: string; externalProjectRef?: string };
+type Body = { projectId?: string };
 
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as Body;
     if (!body.projectId) throw new APIError("Link a project before connecting Supabase.");
-    const externalProjectRef = body.externalProjectRef?.trim();
-    if (!externalProjectRef || !/^[a-z0-9]{10,40}$/i.test(externalProjectRef)) {
-      throw new APIError("Enter the project reference shown in Supabase Project Settings.");
-    }
     const { admin } = await requireProjectAccess(request, body.projectId);
     const state = randomURLSafe();
     const verifier = randomURLSafe(48);
@@ -29,7 +25,7 @@ export async function POST(request: Request) {
         project_id: body.projectId,
         provider: "supabase",
         state: "connecting",
-        metadata: { external_project_ref: externalProjectRef },
+        metadata: {},
         last_error: null,
       }, { onConflict: "project_id,provider" })
       .select("id")
@@ -41,7 +37,7 @@ export async function POST(request: Request) {
       provider: "supabase",
       state_hash: sha256(state),
       code_verifier_ciphertext: encryptSecret(verifier),
-      external_project_ref: externalProjectRef,
+      external_project_ref: null,
       redirect_uri: redirectURI,
       expires_at: expiresAt,
     });

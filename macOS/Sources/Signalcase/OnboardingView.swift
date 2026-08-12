@@ -3,6 +3,7 @@ import SwiftUI
 struct OnboardingView: View {
     @EnvironmentObject private var model: AppModel
     @State private var page = 0
+    @State private var newProjectName = ""
 
     private let pageCount = 4
 
@@ -105,44 +106,68 @@ struct OnboardingView: View {
         HStack(spacing: 66) {
             onboardingCopy(
                 eyebrow: "STEP 1 · PROJECT",
-                title: "Show Signalcase where your code lives.",
-                body: "Link the project folder you want to monitor. When a failure is detected, Signalcase uses it to point you toward relevant files and lines."
+                title: "Create a home for this app.",
+                body: "Each project has its own connections, cases, and history. Create one for the product you are working on, or choose an existing project."
             )
 
-            VStack(spacing: 14) {
-                Image(systemName: model.linkedProjectURL == nil ? "folder.badge.plus" : "folder.fill")
-                    .font(.system(size: 34, weight: .medium))
-                    .foregroundStyle(SignalTheme.lime)
-                    .frame(width: 72, height: 72)
-                    .background(SignalTheme.lime.opacity(0.10), in: RoundedRectangle(cornerRadius: 19))
-
-                VStack(spacing: 5) {
-                    Text(model.projectName)
-                        .font(.system(size: 15, weight: .semibold))
-                        .lineLimit(1)
-                    Text(model.linkedProjectURL?.path ?? "No project selected")
-                        .font(.system(size: 10))
-                        .foregroundStyle(SignalTheme.muted)
-                        .lineLimit(2)
-                        .truncationMode(.middle)
-                        .multilineTextAlignment(.center)
-                }
-
-                Button(model.linkedProjectURL == nil ? "Choose project folder" : "Choose a different folder") {
-                    model.chooseProject()
-                }
-                .buttonStyle(OnboardingSecondaryButtonStyle())
-
+            VStack(alignment: .leading, spacing: 13) {
                 Button(model.isCloudBusy ? "Cancel browser sign-in" : (model.isSignedIn ? "Signed in as \(model.cloudEmail ?? "team member")" : "Sign in with GitHub")) {
                     if model.isCloudBusy { model.cancelCloudAuthentication() }
                     else { Task { await model.signInToSignalcase() } }
                 }
                 .buttonStyle(OnboardingSecondaryButtonStyle())
                 .disabled(model.isSignedIn && !model.isCloudBusy)
+
+                if model.isSignedIn {
+                    if !model.cloudProjects.isEmpty {
+                        Text("YOUR PROJECTS")
+                            .font(.system(size: 8, weight: .bold, design: .monospaced))
+                            .foregroundStyle(SignalTheme.muted)
+                        VStack(spacing: 5) {
+                            ForEach(model.cloudProjects) { project in
+                                Button { model.selectProject(project) } label: {
+                                    HStack(spacing: 10) {
+                                        Image(systemName: model.cloudProjectID == project.id ? "checkmark.circle.fill" : "circle")
+                                            .foregroundStyle(model.cloudProjectID == project.id ? SignalTheme.lime : SignalTheme.muted)
+                                        Text(project.name)
+                                            .font(.system(size: 10.5, weight: .semibold))
+                                        Spacer()
+                                    }
+                                    .padding(.horizontal, 11)
+                                    .frame(height: 36)
+                                    .background(model.cloudProjectID == project.id ? SignalTheme.raised : Color.clear, in: RoundedRectangle(cornerRadius: 9))
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+
+                    Text("NEW PROJECT")
+                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .foregroundStyle(SignalTheme.muted)
+                    HStack(spacing: 8) {
+                        TextField("Fitref", text: $newProjectName)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 11))
+                            .padding(.horizontal, 11)
+                            .frame(height: 38)
+                            .background(SignalTheme.raised, in: RoundedRectangle(cornerRadius: 10))
+                        Button("Create") {
+                            Task {
+                                if await model.createProject(named: newProjectName) {
+                                    newProjectName = ""
+                                }
+                            }
+                        }
+                        .buttonStyle(OnboardingSecondaryButtonStyle())
+                        .disabled(newProjectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isCloudBusy)
+                    }
+                }
             }
-            .padding(30)
-            .frame(width: 340)
-            .frame(minHeight: 280)
+            .padding(22)
+            .frame(width: 360)
+            .frame(minHeight: 300)
             .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 20))
             .overlay(RoundedRectangle(cornerRadius: 20).stroke(SignalTheme.border))
         }
@@ -157,15 +182,11 @@ struct OnboardingView: View {
             )
 
             VStack(spacing: 0) {
-                sourceRow("Supabase", icon: "cylinder.fill", color: SignalTheme.lime)
+                sourceRow("Supabase", detail: "Approve read-only log access in your browser", icon: "cylinder.fill", color: SignalTheme.lime)
                 divider
-                sourceRow("Render", icon: "server.rack", color: SignalTheme.purple)
+                sourceRow("Render", detail: "Add an API key and choose your services", icon: "server.rack", color: SignalTheme.purple)
                 divider
-                sourceRow("Stripe", icon: "creditcard.fill", color: SignalTheme.blue)
-                divider
-                sourceRow("RevenueCat", icon: "cart.fill", color: SignalTheme.yellow)
-                divider
-                sourceRow("Sentry + app logs", icon: "waveform.path.ecg", color: SignalTheme.orange)
+                sourceRow("Application Logs", detail: "Copy a small error-reporting snippet into your app", icon: "terminal.fill", color: SignalTheme.blue)
             }
             .padding(.vertical, 8)
             .frame(width: 340)
@@ -178,8 +199,8 @@ struct OnboardingView: View {
         HStack(spacing: 66) {
             onboardingCopy(
                 eyebrow: "STEP 3 · WORKFLOW",
-                title: "A small workflow for real bugs.",
-                body: "Sync logs, open a case, review its timeline and relevant code, then move it forward. No feature backlog and no enterprise process."
+                title: "An inbox that knows when a bug returns.",
+                body: "New failures enter your Inbox. Keep real problems Active, resolve them when fixed, and Signalcase will reopen any resolved case that happens again."
             )
 
             VStack(spacing: 0) {
@@ -238,6 +259,8 @@ struct OnboardingView: View {
                     withAnimation(.easeOut(duration: 0.18)) { page += 1 }
                 }
                 .buttonStyle(OnboardingPrimaryButtonStyle())
+                .disabled(page == 1 && model.cloudProjectID == nil)
+                .opacity(page == 1 && model.cloudProjectID == nil ? 0.45 : 1)
                 .focusEffectDisabled()
                 .keyboardShortcut(.defaultAction)
             }
@@ -283,22 +306,28 @@ struct OnboardingView: View {
             .foregroundStyle(SignalTheme.muted)
     }
 
-    private func sourceRow(_ title: String, icon: String, color: Color) -> some View {
+    private func sourceRow(_ title: String, detail: String, icon: String, color: Color) -> some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(color)
                 .frame(width: 26, height: 26)
                 .background(color.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
-            Text(title)
-                .font(.system(size: 11.5, weight: .medium))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 11.5, weight: .semibold))
+                Text(detail)
+                    .font(.system(size: 8.5))
+                    .foregroundStyle(SignalTheme.muted)
+                    .lineLimit(1)
+            }
             Spacer()
-            Image(systemName: "checkmark")
+            Image(systemName: "chevron.right")
                 .font(.system(size: 9, weight: .bold))
                 .foregroundStyle(SignalTheme.muted)
         }
         .padding(.horizontal, 15)
-        .frame(height: 48)
+        .frame(height: 57)
     }
 
     private var divider: some View {
@@ -308,9 +337,8 @@ struct OnboardingView: View {
     private func statusColor(_ status: CaseStatus) -> Color {
         switch status {
         case .new: SignalTheme.orange
-        case .triaged: SignalTheme.yellow
-        case .fixing: SignalTheme.blue
-        case .verified: SignalTheme.lime
+        case .active: SignalTheme.blue
+        case .resolved: SignalTheme.lime
         }
     }
 }

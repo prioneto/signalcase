@@ -18,6 +18,8 @@ struct SignalcaseApp: App {
             CommandGroup(replacing: .appSettings) {
                 Button("Settings…") { model.openSettings() }
                     .keyboardShortcut(",", modifiers: .command)
+                Divider()
+                Button("Send Feedback…") { model.openFeedback() }
             }
             CommandGroup(replacing: .newItem) {
                 Button("Sync recent logs") { model.isCapturePresented = true }
