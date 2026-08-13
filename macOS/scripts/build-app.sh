@@ -37,6 +37,27 @@ fi
 cd "${PROJECT_DIR}"
 swift build --configuration "${CONFIGURATION}"
 
+# Never replace or re-sign the bundle while macOS is still running its
+# executable. Doing that invalidates already-mapped code pages and macOS kills
+# the app the next time it becomes active (commonly when OAuth returns from the
+# browser).
+if pgrep -x Signalcase >/dev/null; then
+    print "Closing the running Signalcase app before packaging the new build..."
+    pkill -TERM -x Signalcase
+
+    for _ in {1..50}; do
+        if ! pgrep -x Signalcase >/dev/null; then
+            break
+        fi
+        sleep 0.1
+    done
+
+    if pgrep -x Signalcase >/dev/null; then
+        print -u2 "Signalcase did not close. Quit it manually, then run the build again."
+        exit 1
+    fi
+fi
+
 mkdir -p "${MACOS_DIR}"
 cp "${EXECUTABLE_PATH}" "${MACOS_DIR}/Signalcase"
 

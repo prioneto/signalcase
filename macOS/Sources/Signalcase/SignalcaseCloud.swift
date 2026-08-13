@@ -25,6 +25,10 @@ struct CloudProject: Codable, Identifiable, Hashable {
     let slug: String
 }
 
+struct CloudIdentity {
+    let email: String?
+}
+
 struct CloudConnectionStatus: Codable {
     let state: String
     let externalProjectRef: String?
@@ -116,13 +120,13 @@ final class SignalcaseCloud {
 
     var currentEmail: String? { client?.auth.currentUser?.email }
 
-    func restoreSession() async -> String? {
+    func restoreSession() async -> CloudIdentity? {
         guard let client else { return nil }
-        guard client.auth.currentSession != nil else { return nil }
-        return (try? await client.auth.session.user.email) ?? client.auth.currentUser?.email
+        guard let session = try? await client.auth.session else { return nil }
+        return CloudIdentity(email: session.user.email)
     }
 
-    func signIn() async throws -> String? {
+    func signIn() async throws -> CloudIdentity {
         guard let client else {
             throw SignalcaseCloudError.notConfigured("This build is missing its Signalcase Cloud settings.")
         }
@@ -135,7 +139,7 @@ final class SignalcaseCloud {
             expectedCallbackHost: "auth"
         )
         let session = try await client.auth.session(from: callbackURL)
-        return session.user.email
+        return CloudIdentity(email: session.user.email)
     }
 
     func signOut() async throws {
@@ -180,8 +184,7 @@ final class SignalcaseCloud {
             envelope.authorizationUrl,
             expectedCallbackHost: "integration"
         )
-        let components = URLComponents(url: callback, resolvingAgainstBaseURL: false)
-        let values = Dictionary(uniqueKeysWithValues: (components?.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+        let values = Self.queryValues(from: callback)
         guard values["status"] == "authorized" else {
             throw SignalcaseCloudError.server(values["message"] ?? "Supabase authorization was cancelled.")
         }
@@ -270,13 +273,14 @@ final class SignalcaseCloud {
             .execute()
     }
 
-    func handle(_ url: URL) async -> String? {
+    func handle(_ url: URL) async -> CloudIdentity? {
         if pendingBrowserCallback?.expectedHost == url.host {
             finishBrowserFlow(.success(url))
             return nil
         }
         guard url.host == "auth", let client else { return nil }
-        return try? await client.auth.session(from: url).user.email
+        guard let session = try? await client.auth.session(from: url) else { return nil }
+        return CloudIdentity(email: session.user.email)
     }
 
     func cancelPendingBrowserFlow() {
@@ -374,6 +378,14 @@ final class SignalcaseCloud {
         let pieces = folded.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted)
         let slug = pieces.filter { !$0.isEmpty }.joined(separator: "-")
         return slug.isEmpty ? "mac-project" : String(slug.prefix(80))
+    }
+
+    private static func queryValues(from url: URL) -> [String: String] {
+        var values: [String: String] = [:]
+        for item in URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? [] {
+            values[item.name] = item.value ?? ""
+        }
+        return values
     }
 }
 

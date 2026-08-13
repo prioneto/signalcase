@@ -25,10 +25,12 @@ final class AppModel: ObservableObject {
     @Published var automaticSyncIntervalMinutes: Int
     @Published var lastSuccessfulSyncBySource: [String: Date]
     @Published var cloudEmail: String?
+    @Published var isCloudAuthenticated = false
     @Published var cloudProjectID: UUID?
     @Published var cloudProjects: [CloudProject] = []
     @Published var supabaseProjects: [SupabaseProjectOption] = []
     @Published var isCloudBusy = false
+    @Published var isRestoringCloudSession = true
 
     private var receiver: LocalEventReceiver?
     private var automaticSyncTask: Task<Void, Never>?
@@ -418,7 +420,7 @@ final class AppModel: ObservableObject {
         showToast("Cleared local cases, events, and activity history")
     }
 
-    var isSignedIn: Bool { cloudEmail != nil }
+    var isSignedIn: Bool { isCloudAuthenticated }
 
     func createProject(named value: String) async -> Bool {
         let name = value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -430,7 +432,11 @@ final class AppModel: ObservableObject {
         isCloudBusy = true
         defer { isCloudBusy = false }
         do {
-            if cloudEmail == nil { cloudEmail = try await cloud.signIn() }
+            if !isSignedIn {
+                let identity = try await cloud.signIn()
+                cloudEmail = identity.email
+                isCloudAuthenticated = true
+            }
             let project = try await cloud.bootstrapProject(name: name)
             if !cloudProjects.contains(where: { $0.id == project.id }) {
                 cloudProjects.append(project)
@@ -471,7 +477,9 @@ final class AppModel: ObservableObject {
         isCloudBusy = true
         defer { isCloudBusy = false }
         do {
-            cloudEmail = try await cloud.signIn()
+            let identity = try await cloud.signIn()
+            cloudEmail = identity.email
+            isCloudAuthenticated = true
             await refreshCloudProjects()
             await refreshSupabaseConnection()
             showToast("Signed in to Signalcase")
@@ -487,8 +495,12 @@ final class AppModel: ObservableObject {
         do { try await cloud.signOut() }
         catch { showToast(SecretRedactor.redact(error.localizedDescription)) }
         cloudEmail = nil
+        isCloudAuthenticated = false
         cloudProjects = []
         supabaseProjects = []
+        isSettingsPresented = false
+        isCapturePresented = false
+        isFeedbackPresented = false
         updateIntegration(.supabase, state: .disconnected, count: 0, error: nil)
         persist()
     }
@@ -498,7 +510,11 @@ final class AppModel: ObservableObject {
         isCloudBusy = true
         defer { isCloudBusy = false }
         do {
-            if cloudEmail == nil { cloudEmail = try await cloud.signIn() }
+            if !isSignedIn {
+                let identity = try await cloud.signIn()
+                cloudEmail = identity.email
+                isCloudAuthenticated = true
+            }
             if cloudProjects.isEmpty { await refreshCloudProjects() }
             guard let cloudProjectID else { throw SignalcaseCloudError.server("Create or select a Signalcase project first.") }
             updateIntegration(.supabase, state: .syncing)
@@ -575,8 +591,9 @@ final class AppModel: ObservableObject {
 
     func handleDeepLink(_ url: URL) {
         Task {
-            if let email = await cloud.handle(url) {
-                cloudEmail = email
+            if let identity = await cloud.handle(url) {
+                cloudEmail = identity.email
+                isCloudAuthenticated = true
                 await refreshCloudProjects()
                 showToast("Signed in to Signalcase")
             }
@@ -801,8 +818,14 @@ final class AppModel: ObservableObject {
     }
 
     private func restoreCloudSession() async {
-        cloudEmail = await cloud.restoreSession()
-        guard cloudEmail != nil else { return }
+        defer { isRestoringCloudSession = false }
+        guard let identity = await cloud.restoreSession() else {
+            cloudEmail = nil
+            isCloudAuthenticated = false
+            return
+        }
+        cloudEmail = identity.email
+        isCloudAuthenticated = true
         await refreshCloudProjects()
         await refreshSupabaseConnection()
     }
@@ -818,6 +841,8 @@ final class AppModel: ObservableObject {
             }
             guard let first = cloudProjects.first else {
                 cloudProjectID = nil
+                isOnboardingPresented = true
+                persist()
                 return
             }
             selectProject(first, preserveCurrentDataIfUnassigned: cloudProjectID == nil)

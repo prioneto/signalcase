@@ -22,13 +22,26 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if model.isOnboardingPresented {
+            if model.isRestoringCloudSession {
+                SessionRestoringView()
+            } else if !model.isSignedIn {
+                AuthenticationGateView()
+                    .environmentObject(model)
+            } else if model.isOnboardingPresented {
                 OnboardingView()
                     .environmentObject(model)
             } else {
                 applicationShell
             }
         }
+        .overlay(alignment: .bottomTrailing) {
+            if let toast = model.toastMessage {
+                ToastView(message: toast)
+                    .padding(20)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeOut(duration: 0.2), value: model.toastMessage)
     }
 
     private var applicationShell: some View {
@@ -50,14 +63,6 @@ struct RootView: View {
         }
         .background(SignalTheme.background)
         .foregroundStyle(SignalTheme.text)
-        .overlay(alignment: .bottomTrailing) {
-            if let toast = model.toastMessage {
-                ToastView(message: toast)
-                    .padding(20)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        .animation(.easeOut(duration: 0.2), value: model.toastMessage)
         .sheet(isPresented: $model.isCapturePresented) {
             CaptureSheet()
                 .environmentObject(model)

@@ -111,58 +111,66 @@ struct OnboardingView: View {
             )
 
             VStack(alignment: .leading, spacing: 13) {
-                Button(model.isCloudBusy ? "Cancel browser sign-in" : (model.isSignedIn ? "Signed in as \(model.cloudEmail ?? "team member")" : "Sign in with GitHub")) {
-                    if model.isCloudBusy { model.cancelCloudAuthentication() }
-                    else { Task { await model.signInToSignalcase() } }
-                }
-                .buttonStyle(OnboardingSecondaryButtonStyle())
-                .disabled(model.isSignedIn && !model.isCloudBusy)
-
-                if model.isSignedIn {
-                    if !model.cloudProjects.isEmpty {
-                        Text("YOUR PROJECTS")
-                            .font(.system(size: 8, weight: .bold, design: .monospaced))
+                HStack(spacing: 9) {
+                    Image(systemName: "person.crop.circle.fill.badge.checkmark")
+                        .foregroundStyle(SignalTheme.lime)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Signed in")
+                            .font(.system(size: 10.5, weight: .semibold))
+                        Text(model.cloudEmail ?? "Signalcase account")
+                            .font(.system(size: 8.5))
                             .foregroundStyle(SignalTheme.muted)
-                        VStack(spacing: 5) {
-                            ForEach(model.cloudProjects) { project in
-                                Button { model.selectProject(project) } label: {
-                                    HStack(spacing: 10) {
-                                        Image(systemName: model.cloudProjectID == project.id ? "checkmark.circle.fill" : "circle")
-                                            .foregroundStyle(model.cloudProjectID == project.id ? SignalTheme.lime : SignalTheme.muted)
-                                        Text(project.name)
-                                            .font(.system(size: 10.5, weight: .semibold))
-                                        Spacer()
-                                    }
-                                    .padding(.horizontal, 11)
-                                    .frame(height: 36)
-                                    .background(model.cloudProjectID == project.id ? SignalTheme.raised : Color.clear, in: RoundedRectangle(cornerRadius: 9))
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
+                            .lineLimit(1)
                     }
+                    Spacer()
+                }
+                .padding(.horizontal, 11)
+                .frame(height: 43)
+                .background(SignalTheme.raised, in: RoundedRectangle(cornerRadius: 10))
 
-                    Text("NEW PROJECT")
+                if !model.cloudProjects.isEmpty {
+                    Text("YOUR PROJECTS")
                         .font(.system(size: 8, weight: .bold, design: .monospaced))
                         .foregroundStyle(SignalTheme.muted)
-                    HStack(spacing: 8) {
-                        TextField("Fitref", text: $newProjectName)
-                            .textFieldStyle(.plain)
-                            .font(.system(size: 11))
-                            .padding(.horizontal, 11)
-                            .frame(height: 38)
-                            .background(SignalTheme.raised, in: RoundedRectangle(cornerRadius: 10))
-                        Button("Create") {
-                            Task {
-                                if await model.createProject(named: newProjectName) {
-                                    newProjectName = ""
+                    VStack(spacing: 5) {
+                        ForEach(model.cloudProjects) { project in
+                            Button { model.selectProject(project) } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: model.cloudProjectID == project.id ? "checkmark.circle.fill" : "circle")
+                                        .foregroundStyle(model.cloudProjectID == project.id ? SignalTheme.lime : SignalTheme.muted)
+                                    Text(project.name)
+                                        .font(.system(size: 10.5, weight: .semibold))
+                                    Spacer()
                                 }
+                                .padding(.horizontal, 11)
+                                .frame(height: 36)
+                                .background(model.cloudProjectID == project.id ? SignalTheme.raised : Color.clear, in: RoundedRectangle(cornerRadius: 9))
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+
+                Text("NEW PROJECT")
+                    .font(.system(size: 8, weight: .bold, design: .monospaced))
+                    .foregroundStyle(SignalTheme.muted)
+                HStack(spacing: 8) {
+                    TextField("Fitref", text: $newProjectName)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 11))
+                        .padding(.horizontal, 11)
+                        .frame(height: 38)
+                        .background(SignalTheme.raised, in: RoundedRectangle(cornerRadius: 10))
+                    Button("Create") {
+                        Task {
+                            if await model.createProject(named: newProjectName) {
+                                newProjectName = ""
                             }
                         }
-                        .buttonStyle(OnboardingSecondaryButtonStyle())
-                        .disabled(newProjectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isCloudBusy)
                     }
+                    .buttonStyle(OnboardingSecondaryButtonStyle())
+                    .disabled(newProjectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isCloudBusy)
                 }
             }
             .padding(22)
