@@ -5,7 +5,7 @@ struct SignalcaseApp: App {
     @StateObject private var model = AppModel()
 
     var body: some Scene {
-        WindowGroup {
+        Window("Signalcase", id: "main") {
             RootView()
                 .environmentObject(model)
                 .preferredColorScheme(.dark)
