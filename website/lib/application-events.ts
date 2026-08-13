@@ -111,6 +111,9 @@ export function normalizeApplicationEvent(
     ? parsedTimestamp
     : receivedAt;
   const payload = redactApplicationValue(event) as Record<string, unknown>;
+  const safeOptional = (value: string | null) => value
+    ? String(redactApplicationValue(value))
+    : null;
   const dedupeMaterial = providerEventId
     ? `id:${providerEventId}`
     : [occurredAt.toISOString(), level, title, message, requestId ?? ""].join("|");
@@ -122,16 +125,16 @@ export function normalizeApplicationEvent(
     project_id: projectId,
     connection_id: connectionId,
     provider: "application",
-    provider_event_id: providerEventId,
+    provider_event_id: safeOptional(providerEventId),
     dedupe_key: dedupeKey,
     level,
-    event_type: eventType,
+    event_type: String(redactApplicationValue(eventType)),
     title: String(redactApplicationValue(title)),
     summary: String(redactApplicationValue(message)).slice(0, 4_000),
-    request_id: requestId,
-    actor_external_id: actorId,
-    release,
-    route,
+    request_id: safeOptional(requestId),
+    actor_external_id: safeOptional(actorId),
+    release: safeOptional(release),
+    route: safeOptional(route),
     payload,
     occurred_at: occurredAt.toISOString(),
   };

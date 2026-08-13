@@ -482,7 +482,7 @@ private struct ModernSourceStack: View {
     }
 }
 
-private struct ModernPressableButtonStyle: ButtonStyle {
+struct ModernPressableButtonStyle: ButtonStyle {
     var scale: CGFloat = 0.97
 
     func makeBody(configuration: Configuration) -> some View {

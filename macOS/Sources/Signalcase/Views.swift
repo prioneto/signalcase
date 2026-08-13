@@ -1141,6 +1141,9 @@ private struct FeedbackSheet: View {
 private struct GeneralSettingsView: View {
     @EnvironmentObject private var model: AppModel
     @State private var newProjectName = ""
+    @State private var isProjectSelectorPresented = false
+    @State private var isCreatingProject = false
+    @FocusState private var isProjectNameFocused: Bool
 
     var body: some View {
         ScrollView {
@@ -1282,47 +1285,67 @@ private struct GeneralSettingsView: View {
                         .font(.system(size: 9.5))
                         .foregroundStyle(SignalTheme.muted)
                 }
+                Spacer()
+                if model.isSignedIn {
+                    Text("\(model.cloudProjects.count)")
+                        .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                        .foregroundStyle(SignalTheme.muted)
+                        .padding(.horizontal, 8)
+                        .frame(height: 23)
+                        .background(SignalTheme.raised, in: Capsule())
+                }
             }
 
             if model.isSignedIn {
-                HStack(spacing: 7) {
-                    ForEach(model.cloudProjects) { project in
-                        Button {
-                            model.selectProject(project)
-                        } label: {
-                            HStack(spacing: 6) {
-                                Circle()
-                                    .fill(model.cloudProjectID == project.id ? SignalTheme.lime : SignalTheme.muted.opacity(0.45))
-                                    .frame(width: 6, height: 6)
-                                Text(project.name)
-                                    .lineLimit(1)
-                            }
-                            .font(.system(size: 9.5, weight: .semibold))
-                            .padding(.horizontal, 10)
-                            .frame(height: 32)
-                            .background(model.cloudProjectID == project.id ? SignalTheme.raised : SignalTheme.background, in: RoundedRectangle(cornerRadius: 8))
-                            .contentShape(Rectangle())
+                if model.cloudProjects.isEmpty {
+                    HStack(spacing: 10) {
+                        Image(systemName: "rectangle.stack.badge.plus")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(SignalTheme.muted)
+                            .frame(width: 30, height: 30)
+                            .background(SignalTheme.raised, in: RoundedRectangle(cornerRadius: 8))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("No projects yet")
+                                .font(.system(size: 10.5, weight: .semibold))
+                            Text("Create one to keep your cases and connections together")
+                                .font(.system(size: 8.5))
+                                .foregroundStyle(SignalTheme.muted)
                         }
-                        .buttonStyle(HoverButtonStyle())
+                        Spacer()
                     }
+                    .padding(.horizontal, 10)
+                    .frame(height: 50)
+                    .background(SignalTheme.background, in: RoundedRectangle(cornerRadius: 10))
+                    .overlay { RoundedRectangle(cornerRadius: 10).stroke(SignalTheme.border) }
+                } else {
+                    projectSelector
                 }
 
-                HStack(spacing: 8) {
-                    TextField("New project name", text: $newProjectName)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 10.5))
-                        .padding(.horizontal, 11)
-                        .frame(height: 36)
-                        .background(SignalTheme.background, in: RoundedRectangle(cornerRadius: 9))
-                    Button("Create") {
-                        Task {
-                            if await model.createProject(named: newProjectName) {
-                                newProjectName = ""
-                            }
+                if isCreatingProject {
+                    projectCreator
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                } else {
+                    Button {
+                        withAnimation(.easeOut(duration: 0.16)) {
+                            isProjectSelectorPresented = false
+                            isCreatingProject = true
                         }
+                        isProjectNameFocused = true
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(SignalTheme.lime)
+                            Text("Create new project")
+                                .font(.system(size: 9.5, weight: .semibold))
+                            Spacer()
+                        }
+                        .padding(.horizontal, 10)
+                        .frame(height: 34)
+                        .contentShape(RoundedRectangle(cornerRadius: 8))
                     }
-                    .buttonStyle(QuietButtonStyle())
-                    .disabled(newProjectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isCloudBusy)
+                    .buttonStyle(HoverButtonStyle())
+                    .focusEffectDisabled()
                 }
             } else {
                 Text("Sign in above to create and switch projects.")
@@ -1331,6 +1354,171 @@ private struct GeneralSettingsView: View {
             }
         }
         .padding(14)
+    }
+
+    private var projectSelector: some View {
+        let selected = model.cloudProjects.first { $0.id == model.cloudProjectID }
+        return Button {
+            isProjectSelectorPresented.toggle()
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "rectangle.stack.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(SignalTheme.lime)
+                    .frame(width: 32, height: 32)
+                    .background(SignalTheme.lime.opacity(0.10), in: RoundedRectangle(cornerRadius: 9))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(selected?.name ?? "Choose a project")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundStyle(SignalTheme.text)
+                        .lineLimit(1)
+                    Text(selected == nil ? "No project selected" : "Current project")
+                        .font(.system(size: 8.5))
+                        .foregroundStyle(SignalTheme.muted)
+                }
+                Spacer()
+                Image(systemName: isProjectSelectorPresented ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(SignalTheme.muted)
+                    .frame(width: 26, height: 26)
+                    .background(SignalTheme.raised, in: RoundedRectangle(cornerRadius: 7))
+            }
+            .padding(.horizontal, 9)
+            .frame(height: 50)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(isProjectSelectorPresented ? SignalTheme.raised : SignalTheme.background, in: RoundedRectangle(cornerRadius: 10))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(isProjectSelectorPresented ? SignalTheme.lime.opacity(0.32) : SignalTheme.border)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(ModernPressableButtonStyle(scale: 0.99))
+        .focusEffectDisabled()
+        .popover(isPresented: $isProjectSelectorPresented, arrowEdge: .bottom) {
+            projectSelectorPanel
+        }
+    }
+
+    private var projectSelectorPanel: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("SELECT PROJECT").sectionLabel()
+                Text("Switch cases, connections, and history")
+                    .font(.system(size: 8.5))
+                    .foregroundStyle(SignalTheme.muted)
+            }
+            .padding(.horizontal, 4)
+            .padding(.bottom, 2)
+
+            ScrollView {
+                VStack(spacing: 3) {
+                    ForEach(model.cloudProjects) { project in
+                        projectOption(project)
+                    }
+                }
+            }
+            .frame(maxHeight: 230)
+        }
+        .padding(10)
+        .frame(width: 290)
+        .background(SignalTheme.sidebar)
+        .foregroundStyle(SignalTheme.text)
+    }
+
+    private func projectOption(_ project: CloudProject) -> some View {
+        let isSelected = model.cloudProjectID == project.id
+        return Button {
+            isProjectSelectorPresented = false
+            model.selectProject(project)
+        } label: {
+            HStack(spacing: 9) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "rectangle.stack")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(isSelected ? SignalTheme.lime : SignalTheme.muted)
+                    .frame(width: 28, height: 28)
+                    .background(
+                        isSelected ? SignalTheme.lime.opacity(0.10) : SignalTheme.surface,
+                        in: RoundedRectangle(cornerRadius: 8)
+                    )
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(project.name)
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .lineLimit(1)
+                    Text(isSelected ? "Current project" : project.slug)
+                        .font(.system(size: 8.5))
+                        .foregroundStyle(SignalTheme.muted)
+                        .lineLimit(1)
+                }
+                Spacer()
+                if !isSelected {
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(SignalTheme.muted)
+                }
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 44)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(isSelected ? SignalTheme.raised : Color.clear, in: RoundedRectangle(cornerRadius: 9))
+            .contentShape(RoundedRectangle(cornerRadius: 9))
+        }
+        .buttonStyle(ModernPressableButtonStyle(scale: 0.985))
+        .focusEffectDisabled()
+    }
+
+    private var projectCreator: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("NEW PROJECT").sectionLabel()
+            HStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    Image(systemName: "rectangle.stack.badge.plus")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(SignalTheme.muted)
+                    TextField("Project name", text: $newProjectName)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 10.5, weight: .medium))
+                        .focused($isProjectNameFocused)
+                        .onSubmit(createProject)
+                }
+                .padding(.horizontal, 10)
+                .frame(height: 38)
+                .background(SignalTheme.background, in: RoundedRectangle(cornerRadius: 9))
+                .overlay { RoundedRectangle(cornerRadius: 9).stroke(SignalTheme.border) }
+
+                Button("Cancel") {
+                    withAnimation(.easeOut(duration: 0.16)) {
+                        isCreatingProject = false
+                        newProjectName = ""
+                    }
+                }
+                .buttonStyle(QuietButtonStyle())
+
+                Button(model.isCloudBusy ? "Creating…" : "Create", action: createProject)
+                    .buttonStyle(PrimaryButtonStyle())
+                    .disabled(cleanProjectName.isEmpty || model.isCloudBusy)
+            }
+        }
+        .padding(10)
+        .background(SignalTheme.raised.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
+        .overlay { RoundedRectangle(cornerRadius: 10).stroke(SignalTheme.border) }
+    }
+
+    private var cleanProjectName: String {
+        newProjectName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func createProject() {
+        let name = cleanProjectName
+        guard !name.isEmpty, !model.isCloudBusy else { return }
+        Task {
+            if await model.createProject(named: name) {
+                newProjectName = ""
+                withAnimation(.easeOut(duration: 0.16)) {
+                    isCreatingProject = false
+                }
+            }
+        }
     }
 
     private func settingsRow(
