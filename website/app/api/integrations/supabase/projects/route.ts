@@ -70,9 +70,15 @@ async function accessibleProjects(accessToken: string) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     const providerMessage = payload.message ?? payload.error ?? `Supabase returned ${response.status}.`;
-    if (response.status === 401 || response.status === 403) {
+    if (response.status === 401) {
       throw new APIError(
-        "Signalcase needs Supabase Projects read access. Update the OAuth app scopes, then reconnect.",
+        "Your Supabase authorization is no longer valid. Reconnect Supabase to authorize it again.",
+        401,
+      );
+    }
+    if (response.status === 403) {
+      throw new APIError(
+        "Signalcase's Supabase OAuth app is missing Projects · Read permission. The app owner must enable Projects · Read and Analytics · Read in Supabase, then reconnect.",
         403,
       );
     }
@@ -124,6 +130,8 @@ export async function POST(request: Request) {
         external_project_ref: selected.ref,
         external_project_name: selected.name,
         organization_slug: selected.organizationSlug,
+        external_project_region: selected.region,
+        external_project_status: selected.status,
       },
       connected_at: new Date().toISOString(),
       last_error: null,

@@ -29,6 +29,47 @@ final class SignalcaseTests: XCTestCase {
         XCTAssertEqual(try decoder.decode(CaseStatus.self, from: Data("\"verified\"".utf8)), .resolved)
     }
 
+    func testSupabaseConnectionStatusIncludesTheSelectedProject() throws {
+        let payload = Data("""
+        {
+          "state": "connected",
+          "externalProjectRef": "yxktiawnvessjwzpwphs",
+          "selectedProject": {
+            "ref": "yxktiawnvessjwzpwphs",
+            "name": "fitref",
+            "organizationSlug": "example-team",
+            "region": "eu-central-1",
+            "status": "ACTIVE_HEALTHY"
+          },
+          "connectedAt": null,
+          "lastSyncedAt": null,
+          "error": null
+        }
+        """.utf8)
+
+        let status = try JSONDecoder().decode(CloudConnectionStatus.self, from: payload)
+
+        XCTAssertEqual(status.selectedProject?.name, "fitref")
+        XCTAssertEqual(status.selectedProject?.ref, "yxktiawnvessjwzpwphs")
+    }
+
+    func testSupabaseConnectionStatusStillDecodesBeforeSelectedProjectIsDeployed() throws {
+        let payload = Data("""
+        {
+          "state": "connected",
+          "externalProjectRef": "yxktiawnvessjwzpwphs",
+          "connectedAt": null,
+          "lastSyncedAt": null,
+          "error": null
+        }
+        """.utf8)
+
+        let status = try JSONDecoder().decode(CloudConnectionStatus.self, from: payload)
+
+        XCTAssertNil(status.selectedProject)
+        XCTAssertEqual(status.externalProjectRef, "yxktiawnvessjwzpwphs")
+    }
+
     func testResolvedCaseReopensOnlyForANewerOccurrence() {
         let now = Date()
         let first = LogEvent(
@@ -587,5 +628,19 @@ final class SignalcaseTests: XCTestCase {
         XCTAssertEqual(decoded.automaticSyncIntervalMinutes, 5)
         XCTAssertTrue(decoded.lastSuccessfulSyncBySource.isEmpty)
         XCTAssertTrue(decoded.processedWebhookIDs.isEmpty)
+    }
+
+    func testEachCloudProjectUsesItsOwnWorkspaceFile() {
+        let first = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        let second = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+
+        XCTAssertEqual(
+            WorkspaceStore.projectFileName(first),
+            "11111111-1111-1111-1111-111111111111.json"
+        )
+        XCTAssertNotEqual(
+            WorkspaceStore.projectFileName(first),
+            WorkspaceStore.projectFileName(second)
+        )
     }
 }

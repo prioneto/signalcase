@@ -12,9 +12,17 @@ export async function GET(request: Request) {
       .eq("provider", "supabase")
       .maybeSingle();
     if (error) throw error;
+    const projectRef = data?.metadata?.external_project_ref ?? null;
     return Response.json({
       state: data?.state ?? "disconnected",
-      externalProjectRef: data?.metadata?.external_project_ref ?? null,
+      externalProjectRef: projectRef,
+      selectedProject: projectRef ? {
+        ref: projectRef,
+        name: data?.metadata?.external_project_name ?? projectRef,
+        organizationSlug: data?.metadata?.organization_slug ?? null,
+        region: data?.metadata?.external_project_region ?? null,
+        status: data?.metadata?.external_project_status ?? null,
+      } : null,
       connectedAt: data?.connected_at ?? null,
       lastSyncedAt: data?.last_synced_at ?? null,
       error: data?.last_error ?? null,

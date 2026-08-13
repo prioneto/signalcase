@@ -12,10 +12,11 @@ supabase link --project-ref aaowyafijolazrrwlwob
 supabase db push
 ```
 
-Review the migration list when prompted. The new migration is:
+Review the migration list when prompted. The server-owned integration migrations include:
 
 ```text
 20260807224113_provider_oauth_foundation.sql
+20260813000935_production_application_ingest.sql
 ```
 
 If you prefer the dashboard:
@@ -23,11 +24,10 @@ If you prefer the dashboard:
 1. Open the Signalcase project in Supabase.
 2. In the left sidebar, click **SQL Editor**.
 3. Click **New query**.
-4. Copy the complete contents of `supabase/migrations/20260807224113_provider_oauth_foundation.sql` into the editor.
-5. Click **Run** once.
-6. Open **Table Editor** and confirm `provider_oauth_states` and `provider_credentials` exist.
+4. Run the unapplied migration files in filename order.
+5. Open **Table Editor** and confirm `provider_oauth_states`, `provider_credentials`, and `application_ingest_keys` exist.
 
-Do not add RLS policies for either of those two tables. They are intentionally server-only.
+Do not add client RLS policies for these credential tables. They are intentionally server-only.
 
 ## 2. Collect the Signalcase Supabase keys
 
@@ -159,5 +159,14 @@ select * from public.signalcase_connection_test_table_that_does_not_exist;
 9. Wait about one minute for log ingestion.
 10. In Signalcase, click **Sync logs**, select Supabase, choose the last 15 minutes, and sync.
 11. Confirm a database-error case appears. Open it and verify its source is Supabase rather than demo data.
+
+To verify production Application Logs:
+
+1. Open **Settings** → **Connections** → **Application Logs**.
+2. Click **Create production endpoint** and copy both generated environment variables.
+3. Add them to a server-side test project. Do not expose the authorization value in browser JavaScript.
+4. Send the JSON example shown in Signalcase while the Mac app is closed.
+5. Reopen Signalcase, click **Sync logs**, select Application Logs, and sync the matching time window.
+6. Confirm the application error appears and that its request ID can correlate with Render or Supabase evidence.
 
 If authorization succeeds but project selection or sync returns `403`, confirm the Management OAuth app has **Projects · Read** and **Analytics · Read**, then disconnect and reconnect so both scopes are granted. If the app reports missing cloud configuration, rebuild the app with the three public values in step 6.

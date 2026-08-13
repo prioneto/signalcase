@@ -3,10 +3,15 @@ import SwiftUI
 
 struct SidebarView: View {
     @EnvironmentObject private var model: AppModel
+    @State private var isWorkspaceSelectorPresented = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            brand.padding(.bottom, 24)
+            brand.padding(.bottom, 18)
+
+            sectionLabel("WORKSPACE")
+            workspaceSelector
+                .padding(.bottom, 20)
 
             sectionLabel("CASES")
             VStack(spacing: 3) {
@@ -17,7 +22,7 @@ struct SidebarView: View {
 
             Spacer()
 
-            sectionLabel("WORKSPACE")
+            sectionLabel("APP")
             VStack(spacing: 3) {
                 ModernSidebarActionRow(
                     title: "Send feedback",
@@ -65,7 +70,158 @@ struct SidebarView: View {
 
     private var settingsSubtitle: String {
         let sourceText = model.connectedCount == 1 ? "1 connection" : "\(model.connectedCount) connections"
-        return "\(sourceText) · \(model.projectName)"
+        return sourceText
+    }
+
+    private var workspaceSelector: some View {
+        Button {
+            isWorkspaceSelectorPresented.toggle()
+        } label: {
+            HStack(spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(SignalTheme.lime.opacity(0.12))
+                    Image(systemName: "rectangle.stack.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(SignalTheme.lime)
+                }
+                .frame(width: 30, height: 30)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.projectName)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(SignalTheme.text)
+                        .lineLimit(1)
+                    Text(model.cloudProjectID == nil ? "Choose a workspace" : "\(model.cases.count) cases")
+                        .font(.system(size: 8.5))
+                        .foregroundStyle(SignalTheme.muted)
+                }
+
+                Spacer(minLength: 4)
+                Image(systemName: isWorkspaceSelectorPresented ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(SignalTheme.text.opacity(0.72))
+                    .frame(width: 24, height: 24)
+                    .background(SignalTheme.raised, in: RoundedRectangle(cornerRadius: 7))
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 48)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(isWorkspaceSelectorPresented ? SignalTheme.raised : SignalTheme.surface, in: RoundedRectangle(cornerRadius: 10))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(isWorkspaceSelectorPresented ? SignalTheme.lime.opacity(0.32) : SignalTheme.border)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(ModernPressableButtonStyle(scale: 0.985))
+        .focusEffectDisabled()
+        .popover(isPresented: $isWorkspaceSelectorPresented, arrowEdge: .trailing) {
+            workspaceSelectorPanel
+        }
+    }
+
+    private var workspaceSelectorPanel: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("SWITCH WORKSPACE")
+                    .font(.system(size: 7.5, weight: .bold, design: .monospaced))
+                    .tracking(1.2)
+                    .foregroundStyle(SignalTheme.muted)
+                Text("Choose which project's cases to view")
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(SignalTheme.muted)
+            }
+            .padding(.horizontal, 4)
+            .padding(.bottom, 2)
+
+            if model.cloudProjects.isEmpty {
+                Text("No workspaces yet")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(SignalTheme.muted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+            } else {
+                VStack(spacing: 3) {
+                    ForEach(model.cloudProjects) { project in
+                        workspaceOption(project)
+                    }
+                }
+            }
+
+            Rectangle()
+                .fill(SignalTheme.border)
+                .frame(height: 1)
+                .padding(.vertical, 2)
+
+            Button {
+                isWorkspaceSelectorPresented = false
+                model.openSettings(.general)
+            } label: {
+                HStack(spacing: 9) {
+                    Image(systemName: "gearshape")
+                        .foregroundStyle(SignalTheme.blue)
+                        .frame(width: 18)
+                    Text("Manage workspaces")
+                        .font(.system(size: 10.5, weight: .medium))
+                    Spacer()
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(SignalTheme.muted)
+                }
+                .padding(.horizontal, 10)
+                .frame(height: 36)
+                .contentShape(RoundedRectangle(cornerRadius: 8))
+            }
+            .buttonStyle(ModernPressableButtonStyle(scale: 0.985))
+            .focusEffectDisabled()
+        }
+        .padding(10)
+        .frame(width: 260)
+        .background(SignalTheme.sidebar)
+        .foregroundStyle(SignalTheme.text)
+    }
+
+    private func workspaceOption(_ project: CloudProject) -> some View {
+        let isSelected = model.cloudProjectID == project.id
+        return Button {
+            isWorkspaceSelectorPresented = false
+            model.selectProject(project)
+        } label: {
+            HStack(spacing: 9) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 7)
+                        .fill(isSelected ? SignalTheme.lime.opacity(0.13) : SignalTheme.surface)
+                    Image(systemName: "rectangle.stack")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(isSelected ? SignalTheme.lime : SignalTheme.muted)
+                }
+                .frame(width: 28, height: 28)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(project.name)
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .lineLimit(1)
+                    Text(isSelected ? "Current workspace" : "Switch workspace")
+                        .font(.system(size: 8.5))
+                        .foregroundStyle(SignalTheme.muted)
+                }
+
+                Spacer()
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(SignalTheme.lime)
+                }
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 42)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(isSelected ? SignalTheme.raised : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(ModernPressableButtonStyle(scale: 0.985))
+        .focusEffectDisabled()
     }
 
     private func filterButton(_ filter: CaseFilter) -> some View {
@@ -370,7 +526,6 @@ private struct ModernQuietButtonStyle: ButtonStyle {
 
 private func modernFilterIcon(_ filter: CaseFilter) -> String {
     switch filter {
-    case .inbox: "tray"
     case .new: "circle"
     case .active: "bolt"
     case .resolved: "checkmark.circle"

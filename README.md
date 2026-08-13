@@ -27,7 +27,7 @@ Try these flows:
 
 - **Supabase:** Management OAuth with `projects:read` and `analytics:read`. Signalcase lists accessible projects, saves the user's selection, and queries the current Management API unified `logs` endpoint through its server.
 - **Render:** workspace owner ID, service IDs, and an API key. Service logs and deploys are read.
-- **Application Logs:** a local authenticated endpoint accepts structured errors while Signalcase is open, so your own request IDs and error context can be matched to provider logs.
+- **Application Logs:** a hosted authenticated endpoint collects structured production errors while every Mac is offline. The same secret can also feed an optional localhost receiver during development.
 
 ## Website
 
@@ -43,4 +43,4 @@ The server needs the values listed in `website/.env.example` before account link
 
 ## Current boundary
 
-Supabase pull-based sync uses the hosted authenticated server. Render currently uses local Keychain credentials. The Application Logs receiver runs while Signalcase is open. Provider retention and API limits still apply.
+Supabase and Application Logs use the hosted authenticated server. Render currently uses local Keychain credentials. Provider retention and API limits still apply.

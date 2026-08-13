@@ -19,7 +19,7 @@ enum CaseStatus: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .new: "A newly detected problem that needs a decision."
         case .active: "A real problem someone is currently investigating or fixing."
-        case .resolved: "Removed from the Inbox. A new occurrence reopens it automatically."
+        case .resolved: "Fixed or dismissed. A new occurrence reopens it automatically."
         }
     }
 
@@ -77,7 +77,6 @@ enum CaseSeverity: String, Codable {
 }
 
 enum CaseFilter: String, CaseIterable, Identifiable {
-    case inbox
     case new
     case active
     case resolved
@@ -86,7 +85,6 @@ enum CaseFilter: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .inbox: "Inbox"
         case .new: "New"
         case .active: "Active"
         case .resolved: "Resolved"
@@ -95,7 +93,6 @@ enum CaseFilter: String, CaseIterable, Identifiable {
 
     func contains(_ status: CaseStatus) -> Bool {
         switch self {
-        case .inbox: status != .resolved
         case .new: status == .new
         case .active: status == .active
         case .resolved: status == .resolved

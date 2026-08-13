@@ -32,6 +32,7 @@ struct CloudIdentity {
 struct CloudConnectionStatus: Codable {
     let state: String
     let externalProjectRef: String?
+    let selectedProject: SupabaseProjectOption?
     let connectedAt: String?
     let lastSyncedAt: String?
     let error: String?
@@ -45,6 +46,21 @@ struct SupabaseProjectOption: Codable, Identifiable, Hashable {
     let status: String?
 
     var id: String { ref }
+}
+
+struct ApplicationConnectionStatus: Codable {
+    let state: String
+    let endpoint: URL
+    let connectedAt: String?
+    let lastEventAt: String?
+    let error: String?
+}
+
+struct ApplicationConnectionSetup: Codable {
+    let state: String
+    let endpoint: URL
+    let authorization: String
+    let connectedAt: String?
 }
 
 private struct CloudProjectEnvelope: Codable { let project: CloudProject }
@@ -188,6 +204,10 @@ final class SignalcaseCloud {
         guard values["status"] == "authorized" else {
             throw SignalcaseCloudError.server(values["message"] ?? "Supabase authorization was cancelled.")
         }
+        return try await listSupabaseProjects(projectID: projectID)
+    }
+
+    func listSupabaseProjects(projectID: UUID) async throws -> [SupabaseProjectOption] {
         let projects: SupabaseProjectsEnvelope = try await request(
             path: "/api/integrations/supabase/projects?projectId=\(projectID.uuidString)",
             method: "GET",
@@ -223,6 +243,48 @@ final class SignalcaseCloud {
         let formatter = ISO8601DateFormatter()
         let data = try await requestData(
             path: "/api/integrations/supabase/sync",
+            method: "POST",
+            body: [
+                "projectId": projectID.uuidString,
+                "start": formatter.string(from: start),
+                "end": formatter.string(from: end),
+            ]
+        )
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let payload = object["payload"] else {
+            throw SignalcaseCloudError.invalidResponse
+        }
+        return payload
+    }
+
+    func applicationConnectionStatus(projectID: UUID) async throws -> ApplicationConnectionStatus {
+        try await request(
+            path: "/api/integrations/application/connection?projectId=\(projectID.uuidString)",
+            method: "GET",
+            body: Optional<[String: String]>.none
+        )
+    }
+
+    func connectApplicationLogs(projectID: UUID) async throws -> ApplicationConnectionSetup {
+        try await request(
+            path: "/api/integrations/application/connection",
+            method: "POST",
+            body: ["projectId": projectID.uuidString]
+        )
+    }
+
+    func disconnectApplicationLogs(projectID: UUID) async throws {
+        let _: ApplicationConnectionStatus = try await request(
+            path: "/api/integrations/application/connection",
+            method: "DELETE",
+            body: ["projectId": projectID.uuidString]
+        )
+    }
+
+    func syncApplicationLogs(projectID: UUID, start: Date, end: Date) async throws -> Any {
+        let formatter = ISO8601DateFormatter()
+        let data = try await requestData(
+            path: "/api/integrations/application/sync",
             method: "POST",
             body: [
                 "projectId": projectID.uuidString,

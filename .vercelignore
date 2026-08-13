@@ -1,0 +1,8 @@
+*
+!website
+!website/**
+website/.next
+website/node_modules
+website/.vercel
+website/.env.local
+website/.env.*.local

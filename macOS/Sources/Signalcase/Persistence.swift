@@ -80,7 +80,11 @@ enum WorkspaceStore {
     private static func projectFileURL(_ projectID: UUID) -> URL {
         directoryURL
             .appendingPathComponent("projects", isDirectory: true)
-            .appendingPathComponent("(projectID.uuidString.lowercased()).json")
+            .appendingPathComponent(projectFileName(projectID))
+    }
+
+    static func projectFileName(_ projectID: UUID) -> String {
+        "\(projectID.uuidString.lowercased()).json"
     }
 
     static func load() -> PersistedWorkspace {

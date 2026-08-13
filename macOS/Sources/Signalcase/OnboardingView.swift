@@ -208,7 +208,7 @@ struct OnboardingView: View {
             onboardingCopy(
                 eyebrow: "STEP 3 · WORKFLOW",
                 title: "An inbox that knows when a bug returns.",
-                body: "New failures enter your Inbox. Keep real problems Active, resolve them when fixed, and Signalcase will reopen any resolved case that happens again."
+                body: "New failures appear under New. Move real problems to Active, resolve them when fixed, and Signalcase will reopen any resolved case that happens again."
             )
 
             VStack(spacing: 0) {

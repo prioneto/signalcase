@@ -108,7 +108,7 @@ private struct LegacySidebarView: View {
             .padding(.horizontal, 14)
             .padding(.top, 28)
 
-            Text("INBOX")
+            Text("CASES")
                 .sectionLabel()
                 .padding(.horizontal, 20)
                 .padding(.top, 26)
@@ -253,7 +253,6 @@ private struct LegacySidebarView: View {
 
     private func filterIcon(_ filter: CaseFilter) -> String {
         switch filter {
-        case .inbox: "tray.fill"
         case .new: "circle"
         case .active: "bolt.fill"
         case .resolved: "checkmark.circle.fill"
@@ -1499,7 +1498,9 @@ private struct ConnectionsSettingsView: View {
                     .buttonStyle(QuietButtonStyle())
             }
             if selectedSource == .supabase, !model.supabaseProjects.isEmpty {
-                Button("Cancel project selection") { model.cancelSupabaseProjectSelection() }
+                Button(model.isChangingSupabaseProject ? "Cancel change" : "Cancel project selection") {
+                    model.cancelSupabaseProjectSelection()
+                }
                     .buttonStyle(QuietButtonStyle())
             }
             if let state = integration(for: selectedSource)?.state,
@@ -1508,7 +1509,9 @@ private struct ConnectionsSettingsView: View {
                     .buttonStyle(QuietButtonStyle())
             }
             Spacer()
-            if selectedSource == .supabase, model.supabaseProjects.isEmpty {
+            if selectedSource == .supabase,
+               model.supabaseProjects.isEmpty,
+               integration(for: .supabase)?.state != .connected {
                 Button {
                     Task { await model.connectSupabase() }
                 } label: {
@@ -1535,10 +1538,12 @@ private struct ConnectionsSettingsView: View {
                         )
                     }
                 } label: {
-                    Text(selectedSource == .application ? "Start listening" : "Save & test")
+                    Text(selectedSource == .application
+                        ? (model.productionApplicationAuthorization.isEmpty ? "Create production endpoint" : "Rotate secret")
+                        : "Save & test")
                 }
                 .buttonStyle(PrimaryButtonStyle())
-                .disabled(selectedSource == .application && authorizationHeader.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(model.isCloudBusy)
             }
         }
     }
@@ -1552,14 +1557,18 @@ private struct ConnectionsSettingsView: View {
                 "Database errors, authentication failures, RLS denials, and Edge Function logs. Signalcase reads logs only after you approve access in Supabase."
             )
             if model.supabaseProjects.isEmpty {
-                setupStep(1, "Authorize in your browser", "Connect opens Supabase in your default browser. Sign in and approve read-only access to projects and logs; no key or project ID is pasted into Signalcase.") {
-                    setupResult("Signalcase receives a short-lived OAuth token and keeps it encrypted on the server.", icon: "checkmark.shield.fill", tint: SignalTheme.lime)
-                }
-                setupStep(2, "Choose a project", "After approval, Signalcase retrieves the projects your Supabase account can access. One project is selected automatically; otherwise you choose it here.") {
-                    setupResult("Only the selected project's logs will be read.", icon: "rectangle.stack.fill", tint: SignalTheme.blue)
+                if model.selectedSupabaseProject != nil || !model.configuration.supabaseProjectRef.isEmpty {
+                    selectedSupabaseProjectCard
+                } else {
+                    setupStep(1, "Authorize in your browser", "Connect opens Supabase in your default browser. Sign in and approve read-only access to projects and logs; no key or project ID is pasted into Signalcase.") {
+                        setupResult("Signalcase receives a short-lived OAuth token and keeps it encrypted on the server.", icon: "checkmark.shield.fill", tint: SignalTheme.lime)
+                    }
+                    setupStep(2, "Choose a project", "After approval, Signalcase retrieves the projects your Supabase account can access. One project is selected automatically; otherwise you choose it here.") {
+                        setupResult("Only the selected project's logs will be read.", icon: "rectangle.stack.fill", tint: SignalTheme.blue)
+                    }
                 }
             } else {
-                setupStep(2, "Choose a Supabase project", "Your account can access more than one project. Select the one that belongs to this Signalcase project.") {
+                setupStep(2, model.isChangingSupabaseProject ? "Choose another project" : "Choose a Supabase project", "Select the Supabase project whose logs should belong to this Signalcase project.") {
                     VStack(spacing: 7) {
                         ForEach(model.supabaseProjects) { project in
                             supabaseProjectButton(project)
@@ -1592,22 +1601,27 @@ private struct ConnectionsSettingsView: View {
                 "What this adds",
                 "The error name, message, route, user, release, and request ID from your own code. These details help connect a generic Render 500 to the exact Supabase failure."
             )
-            setupStep(1, "Start a protected receiver", "Signalcase listens on this Mac while the app is open. Choose a port and generate a secret that your application will send with every event.") {
+            setupStep(1, "Create a production receiver", "Signalcase creates a hosted endpoint that keeps collecting while this Mac and the Signalcase app are offline.") {
                 VStack(alignment: .leading, spacing: 9) {
-                    setupNumberField("RECEIVER PORT", value: $model.configuration.revenueCatPort)
-                    copyCard("EVENT ENDPOINT", applicationEndpoint)
-                    HStack(alignment: .bottom, spacing: 8) {
-                        secretField("AUTHORIZATION HEADER", "Bearer sc_local_…", text: $authorizationHeader)
-                        Button("Generate") { generateApplicationSecret() }
-                            .buttonStyle(QuietButtonStyle())
+                    if model.productionApplicationAuthorization.isEmpty {
+                        setupResult("Click Create production endpoint below. The secret is generated securely and shown here.", icon: "cloud.fill", tint: SignalTheme.blue)
+                    } else {
+                        copyCard("PRODUCTION EVENT ENDPOINT", applicationEndpoint)
+                        copyCard("AUTHORIZATION HEADER", applicationAuthorization)
                     }
                 }
             }
-            setupStep(2, "Add it to your application", "Copy these values into your local development environment. Do not commit the authorization value to Git.") {
+            setupStep(2, "Add it to your server", "Copy these values into your production server's environment variables. Never expose the authorization value in browser JavaScript or commit it to Git.") {
                 copyCard("ENVIRONMENT VARIABLES", applicationEnvironment)
             }
             setupStep(3, "Send errors with useful context", "Post an event when your app catches an error. A shared request_id is the strongest way to connect it to Render and Supabase.") {
                 copyCard("JAVASCRIPT EXAMPLE", applicationExample)
+            }
+            setupStep(4, "Optional local development", "The same authorization value also starts a localhost receiver while Signalcase is open.") {
+                VStack(alignment: .leading, spacing: 9) {
+                    setupNumberField("LOCAL RECEIVER PORT", value: $model.configuration.revenueCatPort)
+                    copyCard("LOCAL EVENT ENDPOINT", localApplicationEndpoint)
+                }
             }
         case .stripe, .revenueCat, .sentry:
             sourceExplanation("Not currently available", "This connection is hidden from the current Signalcase release.")
@@ -1692,7 +1706,8 @@ private struct ConnectionsSettingsView: View {
     }
 
     private func supabaseProjectButton(_ project: SupabaseProjectOption) -> some View {
-        Button {
+        let isCurrent = model.selectedSupabaseProject?.ref == project.ref
+        return Button {
             Task { await model.chooseSupabaseProject(project) }
         } label: {
             HStack(spacing: 11) {
@@ -1711,9 +1726,15 @@ private struct ConnectionsSettingsView: View {
                         .foregroundStyle(SignalTheme.muted)
                 }
                 Spacer()
-                Image(systemName: "arrow.right")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(SignalTheme.muted)
+                if isCurrent {
+                    Label("Current", systemImage: "checkmark.circle.fill")
+                        .font(.system(size: 8.5, weight: .semibold))
+                        .foregroundStyle(SignalTheme.lime)
+                } else {
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(SignalTheme.muted)
+                }
             }
             .padding(.horizontal, 11)
             .frame(height: 48)
@@ -1722,7 +1743,50 @@ private struct ConnectionsSettingsView: View {
         }
         .buttonStyle(HoverButtonStyle())
         .focusEffectDisabled()
-        .disabled(model.isCloudBusy)
+        .disabled(model.isCloudBusy || isCurrent)
+    }
+
+    private var selectedSupabaseProjectCard: some View {
+        let project = model.selectedSupabaseProject
+        let projectRef = project?.ref ?? model.configuration.supabaseProjectRef
+        let projectName = project?.name ?? projectRef
+        let details = [project?.organizationSlug, project?.region]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
+
+        return VStack(alignment: .leading, spacing: 9) {
+            Text("CONNECTED PROJECT").sectionLabel()
+            HStack(spacing: 11) {
+                Image(systemName: "cylinder.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(SignalTheme.lime)
+                    .frame(width: 32, height: 32)
+                    .background(SignalTheme.lime.opacity(0.09), in: RoundedRectangle(cornerRadius: 9))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(projectName.isEmpty ? "Supabase project" : projectName)
+                        .font(.system(size: 11.5, weight: .semibold))
+                    Text(details.isEmpty ? projectRef : details)
+                        .font(.system(size: 8.5))
+                        .foregroundStyle(SignalTheme.muted)
+                        .lineLimit(1)
+                    if !projectRef.isEmpty, projectRef != projectName {
+                        Text(projectRef)
+                            .font(.system(size: 7.5, design: .monospaced))
+                            .foregroundStyle(SignalTheme.muted.opacity(0.75))
+                            .lineLimit(1)
+                    }
+                }
+                Spacer()
+                Button("Change") {
+                    Task { await model.changeSupabaseProject() }
+                }
+                .buttonStyle(QuietButtonStyle())
+                .disabled(model.isCloudBusy)
+            }
+        }
+        .padding(12)
+        .background(SignalTheme.raised, in: RoundedRectangle(cornerRadius: 10))
     }
 
     private func setupResult(_ text: String, icon: String, tint: Color) -> some View {
@@ -1765,12 +1829,19 @@ private struct ConnectionsSettingsView: View {
     }
 
     private var applicationEndpoint: String {
+        model.productionApplicationEndpoint.isEmpty
+            ? "Create the endpoint to reveal its URL"
+            : model.productionApplicationEndpoint
+    }
+
+    private var localApplicationEndpoint: String {
         "http://127.0.0.1:\(model.configuration.revenueCatPort)/events"
     }
 
     private var applicationAuthorization: String {
-        let clean = authorizationHeader.trimmingCharacters(in: .whitespacesAndNewlines)
-        return clean.isEmpty ? "Bearer YOUR_GENERATED_SECRET" : clean
+        model.productionApplicationAuthorization.isEmpty
+            ? "Bearer YOUR_GENERATED_SECRET"
+            : model.productionApplicationAuthorization
     }
 
     private var applicationEnvironment: String {
@@ -1789,11 +1860,6 @@ private struct ConnectionsSettingsView: View {
             timestamp: new Date().toISOString() })
         });
         """
-    }
-
-    private func generateApplicationSecret() {
-        let value = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
-        authorizationHeader = "Bearer sc_local_\(value)"
     }
 
     private func integration(for source: LogSource) -> Integration? {

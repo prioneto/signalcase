@@ -8,3 +8,4 @@ website/npm-debug.log*
 
 website/.env.local
 website/.env.*.local
+.vercel
