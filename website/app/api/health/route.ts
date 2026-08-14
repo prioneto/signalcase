@@ -6,6 +6,9 @@ const required = [
   "SUPABASE_MANAGEMENT_CLIENT_ID",
   "SUPABASE_MANAGEMENT_CLIENT_SECRET",
   "CREDENTIAL_ENCRYPTION_KEY",
+  "GITHUB_APP_ID",
+  "GITHUB_APP_SLUG",
+  "GITHUB_APP_PRIVATE_KEY",
 ] as const;
 
 export async function GET() {
@@ -24,6 +27,11 @@ export async function GET() {
         encryptionKey: encryptionKeyValid ? "valid" : "invalid",
         providerOAuth: process.env.SUPABASE_MANAGEMENT_CLIENT_ID
           && process.env.SUPABASE_MANAGEMENT_CLIENT_SECRET
+          ? "configured"
+          : "missing",
+        githubApp: process.env.GITHUB_APP_ID
+          && process.env.GITHUB_APP_SLUG
+          && process.env.GITHUB_APP_PRIVATE_KEY
           ? "configured"
           : "missing",
       },

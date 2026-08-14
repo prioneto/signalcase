@@ -731,7 +731,7 @@ private struct CaptureSheet: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
     @State private var minutes = 15
-    @State private var selectedSources: Set<LogSource> = [.supabase, .render, .application]
+    @State private var selectedSources: Set<LogSource> = [.supabase, .github, .render, .application]
 
     private let windows = [5, 15, 30, 60]
 
@@ -773,7 +773,7 @@ private struct CaptureSheet: View {
                 }
 
                 VStack(spacing: 0) {
-                    ForEach([LogSource.supabase, .render, .application]) { source in
+                    ForEach([LogSource.supabase, .github, .render, .application]) { source in
                         sourceRow(source)
                         if source != .application {
                             Rectangle().fill(SignalTheme.border).frame(height: 1).padding(.leading, 46)
@@ -1649,6 +1649,16 @@ private struct ConnectionsSettingsView: View {
                 }
                     .buttonStyle(QuietButtonStyle())
             }
+            if selectedSource == .github, model.isCloudBusy, model.githubRepositories.isEmpty {
+                Button("Cancel") { model.cancelCloudAuthentication() }
+                    .buttonStyle(QuietButtonStyle())
+            }
+            if selectedSource == .github, !model.githubRepositories.isEmpty {
+                Button(model.isChangingGitHubRepository ? "Cancel change" : "Cancel repository selection") {
+                    model.cancelGitHubRepositorySelection()
+                }
+                .buttonStyle(QuietButtonStyle())
+            }
             if selectedSource == .render, model.isRenderDiscoveryActive {
                 Button("Cancel") { model.cancelRenderDiscovery() }
                     .buttonStyle(QuietButtonStyle())
@@ -1678,6 +1688,28 @@ private struct ConnectionsSettingsView: View {
                 Text("Choose a project above")
                     .font(.system(size: 9.5, weight: .medium))
                     .foregroundStyle(SignalTheme.muted)
+            } else if selectedSource == .github {
+                if !model.githubRepositories.isEmpty {
+                    Text("Choose a repository above")
+                        .font(.system(size: 9.5, weight: .medium))
+                        .foregroundStyle(SignalTheme.muted)
+                } else if integration(for: .github)?.state == .connected {
+                    Button {
+                        Task { await model.changeGitHubRepository() }
+                    } label: {
+                        Text(model.isCloudBusy ? "Loading…" : "Change repository")
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .disabled(model.isCloudBusy)
+                } else {
+                    Button {
+                        Task { await model.connectGitHub() }
+                    } label: {
+                        Text(model.isCloudBusy ? "Waiting in browser…" : "Connect GitHub")
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .disabled(model.isCloudBusy)
+                }
             } else if selectedSource == .render {
                 if model.isRenderDiscoveryActive {
                     Button {
@@ -1768,6 +1800,29 @@ private struct ConnectionsSettingsView: View {
                         supabaseProjectButton(project)
                     }
                 }
+            }
+        case .github:
+            connectionProgress(
+                ["Install app", "Choose repository", "Ready"],
+                current: integration(for: .github)?.state == .connected
+                    ? 3
+                    : (model.githubRepositories.isEmpty ? 0 : 1)
+            )
+            if !model.githubRepositories.isEmpty {
+                compactSection(model.isChangingGitHubRepository ? "Choose another repository" : "Choose a repository") {
+                    ForEach(model.githubRepositories) { repository in
+                        githubRepositoryButton(repository)
+                    }
+                }
+            } else if model.selectedGitHubRepository != nil {
+                selectedGitHubRepositoryCard
+            } else {
+                setupPrompt(
+                    "Install Signalcase on GitHub",
+                    "Choose the repositories Signalcase may read. No token needs to be pasted.",
+                    icon: "arrow.up.right.square.fill",
+                    tint: SignalTheme.text
+                )
             }
         case .render:
             connectionProgress(
@@ -2149,6 +2204,78 @@ private struct ConnectionsSettingsView: View {
         .buttonStyle(QuietButtonStyle())
     }
 
+    private func githubRepositoryButton(_ repository: GitHubRepositoryOption) -> some View {
+        let isCurrent = model.selectedGitHubRepository?.id == repository.id
+        return Button {
+            Task { await model.chooseGitHubRepository(repository) }
+        } label: {
+            HStack(spacing: 11) {
+                Image(systemName: repository.isPrivate ? "lock.fill" : "chevron.left.forwardslash.chevron.right")
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundStyle(SignalTheme.text)
+                    .frame(width: 28, height: 28)
+                    .background(SignalTheme.text.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(repository.name)
+                        .font(.system(size: 11, weight: .semibold))
+                    Text("\(repository.owner ?? repository.fullName) · \(repository.defaultBranch)")
+                        .font(.system(size: 8.5))
+                        .foregroundStyle(SignalTheme.muted)
+                        .lineLimit(1)
+                }
+                Spacer()
+                if isCurrent {
+                    Label("Current", systemImage: "checkmark.circle.fill")
+                        .font(.system(size: 8.5, weight: .semibold))
+                        .foregroundStyle(SignalTheme.lime)
+                } else {
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(SignalTheme.muted)
+                }
+            }
+            .padding(.horizontal, 11)
+            .frame(height: 48)
+            .background(SignalTheme.raised, in: RoundedRectangle(cornerRadius: 9))
+            .contentShape(RoundedRectangle(cornerRadius: 9))
+        }
+        .buttonStyle(HoverButtonStyle())
+        .focusEffectDisabled()
+        .disabled(model.isCloudBusy || isCurrent)
+    }
+
+    private var selectedGitHubRepositoryCard: some View {
+        let repository = model.selectedGitHubRepository
+        return VStack(alignment: .leading, spacing: 9) {
+            Text("CONNECTED REPOSITORY").sectionLabel()
+            HStack(spacing: 11) {
+                Image(systemName: repository?.isPrivate == true ? "lock.fill" : "chevron.left.forwardslash.chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(SignalTheme.text)
+                    .frame(width: 32, height: 32)
+                    .background(SignalTheme.text.opacity(0.08), in: RoundedRectangle(cornerRadius: 9))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(repository?.fullName ?? "GitHub repository")
+                        .font(.system(size: 11.5, weight: .semibold))
+                    Text("Failed Actions runs are included when logs sync")
+                        .font(.system(size: 8.5))
+                        .foregroundStyle(SignalTheme.muted)
+                }
+                Spacer()
+                if let url = repository?.htmlUrl {
+                    Button {
+                        NSWorkspace.shared.open(url)
+                    } label: {
+                        Image(systemName: "arrow.up.right")
+                    }
+                    .buttonStyle(QuietButtonStyle())
+                }
+            }
+        }
+        .padding(12)
+        .background(SignalTheme.raised, in: RoundedRectangle(cornerRadius: 10))
+    }
+
     private func supabaseProjectButton(_ project: SupabaseProjectOption) -> some View {
         let isCurrent = model.selectedSupabaseProject?.ref == project.ref
         return Button {
@@ -2313,6 +2440,9 @@ private struct ConnectionsSettingsView: View {
     private func stateLabel(_ integration: Integration) -> String {
         if integration.source == .supabase, !model.supabaseProjects.isEmpty {
             return "CHOOSE A PROJECT"
+        }
+        if integration.source == .github, !model.githubRepositories.isEmpty {
+            return "CHOOSE A REPOSITORY"
         }
         if integration.source == .render, model.isRenderDiscoveryActive {
             return "CHOOSE SERVICES"
@@ -2499,6 +2629,7 @@ private func severityColor(_ severity: CaseSeverity) -> Color {
 private func sourceColor(_ source: LogSource) -> Color {
     switch source {
     case .supabase: SignalTheme.lime
+    case .github: SignalTheme.text
     case .stripe: SignalTheme.purple
     case .render: SignalTheme.blue
     case .revenueCat: SignalTheme.yellow

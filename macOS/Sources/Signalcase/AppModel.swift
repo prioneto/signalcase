@@ -31,6 +31,9 @@ final class AppModel: ObservableObject {
     @Published var supabaseProjects: [SupabaseProjectOption] = []
     @Published var selectedSupabaseProject: SupabaseProjectOption?
     @Published var isChangingSupabaseProject = false
+    @Published var githubRepositories: [GitHubRepositoryOption] = []
+    @Published var selectedGitHubRepository: GitHubRepositoryOption?
+    @Published var isChangingGitHubRepository = false
     @Published var renderWorkspaces: [RenderWorkspaceOption] = []
     @Published var renderServices: [RenderServiceOption] = []
     @Published var selectedRenderWorkspaceID: String?
@@ -96,6 +99,7 @@ final class AppModel: ObservableObject {
         let hasApplicationEvents = migratedEvents.contains { $0.source == .application }
         integrations = [
             .init(source: .supabase, state: Self.connectionState(.supabase, configuration: workspace.configuration, events: migratedEvents), detail: "Auth, database and function logs"),
+            .init(source: .github, state: .disconnected, detail: "Repository context and failed Actions runs"),
             .init(source: .render, state: Self.connectionState(.render, configuration: workspace.configuration, events: migratedEvents, projectID: workspace.cloudProjectID), detail: "Service logs, deploys and restarts"),
             .init(
                 source: .application,
@@ -165,6 +169,9 @@ final class AppModel: ObservableObject {
         }
         if cloudProjectID != nil, integrations.first(where: { $0.source == .supabase })?.state == .connected {
             sources.insert(.supabase)
+        }
+        if cloudProjectID != nil, integrations.first(where: { $0.source == .github })?.state == .connected {
+            sources.insert(.github)
         }
         if cloudProjectID != nil,
            [.connected, .waitingForEvent].contains(integrations.first(where: { $0.source == .application })?.state) {
@@ -536,6 +543,10 @@ final class AppModel: ObservableObject {
             Task { await disconnectSupabase() }
             return
         }
+        if source == .github {
+            Task { await disconnectGitHub() }
+            return
+        }
         if source == .application {
             Task { await disconnectApplicationLogs() }
             return
@@ -681,6 +692,8 @@ final class AppModel: ObservableObject {
             configuration.supabaseProjectRef = ""
             selectedSupabaseProject = nil
             isChangingSupabaseProject = false
+            selectedGitHubRepository = nil
+            isChangingGitHubRepository = false
             persist()
         } else {
             applyProjectWorkspace(WorkspaceStore.load(projectID: project.id), projectID: project.id)
@@ -689,6 +702,7 @@ final class AppModel: ObservableObject {
         filter = .new
         Task {
             await refreshSupabaseConnection()
+            await refreshGitHubConnection()
             await refreshApplicationConnection()
         }
         showToast("Switched to \(project.name)")
@@ -704,6 +718,7 @@ final class AppModel: ObservableObject {
             isCloudAuthenticated = true
             await refreshCloudProjects()
             await refreshSupabaseConnection()
+            await refreshGitHubConnection()
             await refreshApplicationConnection()
             showToast("Signed in to Signalcase")
         } catch {
@@ -723,10 +738,14 @@ final class AppModel: ObservableObject {
         supabaseProjects = []
         selectedSupabaseProject = nil
         isChangingSupabaseProject = false
+        githubRepositories = []
+        selectedGitHubRepository = nil
+        isChangingGitHubRepository = false
         isSettingsPresented = false
         isCapturePresented = false
         isFeedbackPresented = false
         updateIntegration(.supabase, state: .disconnected, count: 0, error: nil)
+        updateIntegration(.github, state: .disconnected, count: 0, error: nil)
         persist()
     }
 
@@ -842,6 +861,130 @@ final class AppModel: ObservableObject {
         showToast("Supabase disconnected")
     }
 
+    func connectGitHub() async {
+        guard !isCloudBusy else { return }
+        isCloudBusy = true
+        defer { isCloudBusy = false }
+        isChangingGitHubRepository = false
+        do {
+            if !isSignedIn {
+                let identity = try await cloud.signIn()
+                cloudEmail = identity.email
+                isCloudAuthenticated = true
+            }
+            if cloudProjects.isEmpty { await refreshCloudProjects() }
+            guard let cloudProjectID else {
+                throw SignalcaseCloudError.server("Create or select a Signalcase project first.")
+            }
+            updateIntegration(.github, state: .syncing, error: nil)
+            let repositories = try await cloud.authorizeGitHub(projectID: cloudProjectID)
+            guard !repositories.isEmpty else {
+                throw SignalcaseCloudError.server("The GitHub App has no repository access. Add a repository in GitHub and reconnect.")
+            }
+            if let recommended = recommendedGitHubRepository(in: repositories) {
+                try await finishGitHubConnection(recommended, signalcaseProjectID: cloudProjectID)
+            } else {
+                githubRepositories = repositories
+                updateIntegration(.github, state: .available, error: nil)
+                showToast("Choose the GitHub repository to connect")
+            }
+        } catch {
+            githubRepositories = []
+            updateIntegration(.github, state: .failed, error: SecretRedactor.redact(error.localizedDescription))
+            showToast(SecretRedactor.redact(error.localizedDescription))
+        }
+    }
+
+    func changeGitHubRepository() async {
+        guard !isCloudBusy, let cloudProjectID else { return }
+        isCloudBusy = true
+        defer { isCloudBusy = false }
+        do {
+            let repositories = try await cloud.listGitHubRepositories(projectID: cloudProjectID)
+            guard !repositories.isEmpty else {
+                throw SignalcaseCloudError.server("The GitHub App has no accessible repositories.")
+            }
+            githubRepositories = repositories
+            isChangingGitHubRepository = true
+            updateIntegration(.github, state: .connected, error: nil)
+        } catch {
+            updateIntegration(.github, state: .connected, error: SecretRedactor.redact(error.localizedDescription))
+            showToast(SecretRedactor.redact(error.localizedDescription))
+        }
+    }
+
+    func chooseGitHubRepository(_ repository: GitHubRepositoryOption) async {
+        guard !isCloudBusy, let cloudProjectID else { return }
+        isCloudBusy = true
+        defer { isCloudBusy = false }
+        do {
+            updateIntegration(.github, state: .syncing, error: nil)
+            try await finishGitHubConnection(repository, signalcaseProjectID: cloudProjectID)
+        } catch {
+            updateIntegration(
+                .github,
+                state: isChangingGitHubRepository ? .connected : .failed,
+                error: SecretRedactor.redact(error.localizedDescription)
+            )
+            showToast(SecretRedactor.redact(error.localizedDescription))
+        }
+    }
+
+    func cancelGitHubRepositorySelection() {
+        githubRepositories = []
+        if isChangingGitHubRepository {
+            isChangingGitHubRepository = false
+            updateIntegration(.github, state: .connected, error: nil)
+            return
+        }
+        updateIntegration(.github, state: .disconnected, error: nil)
+        Task { await disconnectGitHub() }
+    }
+
+    func disconnectGitHub() async {
+        guard let cloudProjectID else { return }
+        do { try await cloud.disconnectGitHub(projectID: cloudProjectID) }
+        catch {
+            showToast(SecretRedactor.redact(error.localizedDescription))
+            return
+        }
+        githubRepositories = []
+        selectedGitHubRepository = nil
+        isChangingGitHubRepository = false
+        lastSuccessfulSyncBySource.removeValue(forKey: LogSource.github.rawValue)
+        updateIntegration(.github, state: .disconnected, count: 0, error: nil)
+        persist()
+        showToast("GitHub disconnected")
+    }
+
+    private func finishGitHubConnection(
+        _ repository: GitHubRepositoryOption,
+        signalcaseProjectID: UUID
+    ) async throws {
+        let selected = try await cloud.selectGitHubRepository(
+            projectID: signalcaseProjectID,
+            repositoryID: repository.id
+        )
+        selectedGitHubRepository = selected
+        githubRepositories = []
+        isChangingGitHubRepository = false
+        await refreshGitHubConnection()
+        persist()
+        showToast("Connected \(selected.fullName)")
+    }
+
+    private func recommendedGitHubRepository(
+        in repositories: [GitHubRepositoryOption]
+    ) -> GitHubRepositoryOption? {
+        if repositories.count == 1 { return repositories.first }
+        let renderNames = Set((configuration.renderSelectedServices ?? []).compactMap {
+            $0.repositoryName?.lowercased()
+        })
+        guard !renderNames.isEmpty else { return nil }
+        let matches = repositories.filter { renderNames.contains($0.name.lowercased()) }
+        return matches.count == 1 ? matches.first : nil
+    }
+
     func cancelCloudAuthentication() {
         cloud.cancelPendingBrowserFlow()
     }
@@ -940,6 +1083,10 @@ final class AppModel: ObservableObject {
             guard let cloudProjectID else { throw SignalcaseCloudError.signedOut }
             let payload = try await cloud.syncSupabase(projectID: cloudProjectID, start: start, end: end)
             return ProviderBatch(events: SupabaseProvider.normalize(payload))
+        case .github:
+            guard let cloudProjectID else { throw SignalcaseCloudError.signedOut }
+            let payload = try await cloud.syncGitHub(projectID: cloudProjectID, start: start, end: end)
+            return ProviderBatch(events: GitHubProvider.normalize(payload))
         case .stripe: return try await StripeProvider.fetchBatch(token: token, start: start, end: end)
         case .render: return try await RenderProvider.fetchBatch(configuration: configuration, token: token, start: start, end: end)
         case .sentry: return try await SentryProvider.fetchBatch(configuration: configuration, token: token, start: start, end: end)
@@ -1073,7 +1220,7 @@ final class AppModel: ObservableObject {
         projectID: UUID? = nil
     ) -> IntegrationState {
         switch source {
-        case .supabase: return .disconnected
+        case .supabase, .github: return .disconnected
         case .sentry: return !configuration.sentryOrganization.isEmpty && !configuration.sentryProject.isEmpty && CredentialStore.load(source: source, projectID: projectID) != nil ? .connected : .disconnected
         case .render: return !configuration.renderOwnerID.isEmpty && !configuration.renderResourceIDs.isEmpty && CredentialStore.load(source: source, projectID: projectID) != nil ? .connected : .disconnected
         case .stripe: return CredentialStore.load(source: source, projectID: projectID) != nil ? .connected : .disconnected
@@ -1092,6 +1239,7 @@ final class AppModel: ObservableObject {
         isCloudAuthenticated = true
         await refreshCloudProjects()
         await refreshSupabaseConnection()
+        await refreshGitHubConnection()
         await refreshApplicationConnection()
     }
 
@@ -1126,6 +1274,9 @@ final class AppModel: ObservableObject {
         supabaseProjects = []
         selectedSupabaseProject = nil
         isChangingSupabaseProject = false
+        githubRepositories = []
+        selectedGitHubRepository = nil
+        isChangingGitHubRepository = false
         renderWorkspaces = []
         renderServices = []
         selectedRenderWorkspaceID = nil
@@ -1150,6 +1301,7 @@ final class AppModel: ObservableObject {
         let hasApplicationCredential = CredentialStore.load(source: .application, kind: .authorizationHeader, projectID: projectID) != nil
         integrations = [
             .init(source: .supabase, state: .disconnected, detail: "Auth, database and function logs"),
+            .init(source: .github, state: .disconnected, detail: "Repository context and failed Actions runs"),
             .init(source: .render, state: Self.connectionState(.render, configuration: configuration, events: rawEvents, projectID: projectID), detail: "Service logs, deploys and restarts"),
             .init(
                 source: .application,
@@ -1194,6 +1346,22 @@ final class AppModel: ObservableObject {
             }
         } catch {
             updateIntegration(.supabase, state: .failed, error: SecretRedactor.redact(error.localizedDescription))
+        }
+    }
+
+    private func refreshGitHubConnection() async {
+        guard let cloudProjectID else { return }
+        do {
+            let status = try await cloud.githubConnectionStatus(projectID: cloudProjectID)
+            selectedGitHubRepository = status.selectedRepository
+            switch status.state {
+            case "connected": updateIntegration(.github, state: .connected, error: nil)
+            case "connecting": updateIntegration(.github, state: .available, error: nil)
+            case "error": updateIntegration(.github, state: .failed, error: status.error)
+            default: updateIntegration(.github, state: .disconnected, error: nil)
+            }
+        } catch {
+            updateIntegration(.github, state: .failed, error: SecretRedactor.redact(error.localizedDescription))
         }
     }
 

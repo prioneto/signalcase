@@ -8,7 +8,10 @@ CONFIGURATION="${SIGNALCASE_CONFIGURATION:-debug}"
 APP_DIR="${PROJECT_DIR}/.build/Signalcase.app"
 CONTENTS_DIR="${APP_DIR}/Contents"
 MACOS_DIR="${CONTENTS_DIR}/MacOS"
+RESOURCES_DIR="${CONTENTS_DIR}/Resources"
 EXECUTABLE_PATH="${PROJECT_DIR}/.build/${CONFIGURATION}/Signalcase"
+ASSET_CATALOG_PATH="${PROJECT_DIR}/Resources/Assets.xcassets"
+ASSET_INFO_PLIST="${PROJECT_DIR}/.build/SignalcaseAppIcon.plist"
 
 read_env_value() {
     local key="$1"
@@ -58,8 +61,15 @@ if pgrep -x Signalcase >/dev/null; then
     fi
 fi
 
-mkdir -p "${MACOS_DIR}"
+mkdir -p "${MACOS_DIR}" "${RESOURCES_DIR}"
 cp "${EXECUTABLE_PATH}" "${MACOS_DIR}/Signalcase"
+xcrun actool \
+    --compile "${RESOURCES_DIR}" \
+    --platform macosx \
+    --minimum-deployment-target 14.0 \
+    --app-icon AppIcon \
+    --output-partial-info-plist "${ASSET_INFO_PLIST}" \
+    "${ASSET_CATALOG_PATH}" >/dev/null
 
 INFO_PLIST="${CONTENTS_DIR}/Info.plist"
 plutil -create xml1 "${INFO_PLIST}"
@@ -68,6 +78,8 @@ plutil -insert CFBundleDisplayName -string Signalcase "${INFO_PLIST}"
 plutil -insert CFBundleExecutable -string Signalcase "${INFO_PLIST}"
 plutil -insert CFBundleIdentifier -string app.signalcase.mac "${INFO_PLIST}"
 plutil -insert CFBundleInfoDictionaryVersion -string 6.0 "${INFO_PLIST}"
+plutil -insert CFBundleIconFile -string AppIcon "${INFO_PLIST}"
+plutil -insert CFBundleIconName -string AppIcon "${INFO_PLIST}"
 plutil -insert CFBundleName -string Signalcase "${INFO_PLIST}"
 plutil -insert CFBundlePackageType -string APPL "${INFO_PLIST}"
 plutil -insert CFBundleShortVersionString -string 0.1.0 "${INFO_PLIST}"

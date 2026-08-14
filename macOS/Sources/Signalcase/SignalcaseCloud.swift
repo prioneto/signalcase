@@ -48,6 +48,25 @@ struct SupabaseProjectOption: Codable, Identifiable, Hashable {
     var id: String { ref }
 }
 
+struct GitHubRepositoryOption: Codable, Identifiable, Hashable {
+    let id: Int64
+    let name: String
+    let fullName: String
+    let owner: String?
+    let htmlUrl: URL
+    let defaultBranch: String
+    let isPrivate: Bool
+}
+
+struct GitHubConnectionStatus: Codable {
+    let state: String
+    let accountLogin: String?
+    let selectedRepository: GitHubRepositoryOption?
+    let connectedAt: String?
+    let lastSyncedAt: String?
+    let error: String?
+}
+
 struct ApplicationConnectionStatus: Codable {
     let state: String
     let endpoint: URL
@@ -71,6 +90,21 @@ private struct SupabaseSelectionEnvelope: Codable {
     let externalProjectRef: String
     let project: SupabaseProjectOption
 }
+private struct GitHubRepositoriesEnvelope: Codable { let repositories: [GitHubRepositoryOption] }
+private struct GitHubSelectionEnvelope: Codable {
+    let state: String
+    let repository: GitHubRepositoryOption
+}
+private struct GitHubRepositorySelection: Encodable {
+    let projectID: String
+    let repositoryID: Int64
+
+    enum CodingKeys: String, CodingKey {
+        case projectID = "projectId"
+        case repositoryID = "repositoryId"
+    }
+}
+private struct StateEnvelope: Codable { let state: String }
 private struct AuthorizationEnvelope: Codable { let authorizationUrl: URL }
 private struct APIErrorEnvelope: Codable { let error: String }
 
@@ -243,6 +277,78 @@ final class SignalcaseCloud {
         let formatter = ISO8601DateFormatter()
         let data = try await requestData(
             path: "/api/integrations/supabase/sync",
+            method: "POST",
+            body: [
+                "projectId": projectID.uuidString,
+                "start": formatter.string(from: start),
+                "end": formatter.string(from: end),
+            ]
+        )
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let payload = object["payload"] else {
+            throw SignalcaseCloudError.invalidResponse
+        }
+        return payload
+    }
+
+    func authorizeGitHub(projectID: UUID) async throws -> [GitHubRepositoryOption] {
+        let envelope: AuthorizationEnvelope = try await request(
+            path: "/api/integrations/github/session",
+            method: "POST",
+            body: ["projectId": projectID.uuidString]
+        )
+        let callback = try await openInDefaultBrowser(
+            envelope.authorizationUrl,
+            expectedCallbackHost: "integration"
+        )
+        let values = Self.queryValues(from: callback)
+        guard values["status"] == "authorized" else {
+            throw SignalcaseCloudError.server(values["message"] ?? "GitHub installation was cancelled.")
+        }
+        return try await listGitHubRepositories(projectID: projectID)
+    }
+
+    func githubConnectionStatus(projectID: UUID) async throws -> GitHubConnectionStatus {
+        try await request(
+            path: "/api/integrations/github/status?projectId=\(projectID.uuidString)",
+            method: "GET",
+            body: Optional<[String: String]>.none
+        )
+    }
+
+    func listGitHubRepositories(projectID: UUID) async throws -> [GitHubRepositoryOption] {
+        let envelope: GitHubRepositoriesEnvelope = try await request(
+            path: "/api/integrations/github/repositories?projectId=\(projectID.uuidString)",
+            method: "GET",
+            body: Optional<[String: String]>.none
+        )
+        return envelope.repositories
+    }
+
+    func selectGitHubRepository(projectID: UUID, repositoryID: Int64) async throws -> GitHubRepositoryOption {
+        let envelope: GitHubSelectionEnvelope = try await request(
+            path: "/api/integrations/github/repositories",
+            method: "POST",
+            body: GitHubRepositorySelection(projectID: projectID.uuidString, repositoryID: repositoryID)
+        )
+        guard envelope.state == "connected" else {
+            throw SignalcaseCloudError.server("GitHub did not finish connecting.")
+        }
+        return envelope.repository
+    }
+
+    func disconnectGitHub(projectID: UUID) async throws {
+        let _: StateEnvelope = try await request(
+            path: "/api/integrations/github/disconnect",
+            method: "POST",
+            body: ["projectId": projectID.uuidString]
+        )
+    }
+
+    func syncGitHub(projectID: UUID, start: Date, end: Date) async throws -> Any {
+        let formatter = ISO8601DateFormatter()
+        let data = try await requestData(
+            path: "/api/integrations/github/sync",
             method: "POST",
             body: [
                 "projectId": projectID.uuidString,

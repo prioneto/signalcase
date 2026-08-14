@@ -17,6 +17,7 @@ Review the migration list when prompted. The server-owned integration migrations
 ```text
 20260807224113_provider_oauth_foundation.sql
 20260813000935_production_application_ingest.sql
+20260814064812_add_github_integration.sql
 ```
 
 If you prefer the dashboard:
@@ -84,7 +85,37 @@ http://localhost:3002/api/integrations/supabase/callback
 
 The redirect URL must exactly match `NEXT_PUBLIC_SITE_URL` plus `/api/integrations/supabase/callback`.
 
-## 5. Configure and deploy Vercel
+## 5. Create the Signalcase GitHub App
+
+This is separate from the GitHub OAuth provider used for Signalcase sign-in. It gives each team a GitHub-owned screen where they choose exactly which repositories Signalcase may read.
+
+1. Open [GitHub Developer Settings](https://github.com/settings/apps).
+2. Click **New GitHub App**.
+3. Enter a globally unique app name, such as `Signalcase` or `Signalcase Dev`.
+4. Set **Homepage URL** to `https://YOUR_DOMAIN`.
+5. Leave **Callback URL** empty. This flow uses the installation setup callback, not user OAuth.
+6. Turn off **Request user authorization (OAuth) during installation**.
+7. Set **Setup URL** to exactly:
+
+```text
+https://YOUR_DOMAIN/api/integrations/github/callback
+```
+
+8. Enable **Redirect on update**.
+9. Turn off **Active** under Webhook. This version polls recent Actions evidence and does not need webhooks.
+10. Under **Repository permissions**, set **Actions** to **Read-only**. Leave **Metadata** at its required read-only setting and every other permission at **No access**.
+11. Under **Where can this GitHub App be installed?**, choose **Any account** for production.
+12. Click **Create GitHub App**.
+13. Copy the numeric **App ID** and the **App slug**.
+14. At the bottom of the app settings, click **Generate a private key**. GitHub downloads a `.pem` file; keep it server-only.
+
+For localhost, create a second GitHub App with this Setup URL:
+
+```text
+http://localhost:3002/api/integrations/github/callback
+```
+
+## 6. Configure and deploy Vercel
 
 1. Open Vercel and select the Signalcase project.
 2. Click **Settings** → **Build and Deployment**.
@@ -101,6 +132,10 @@ The redirect URL must exactly match `NEXT_PUBLIC_SITE_URL` plus `/api/integratio
 | `SUPABASE_MANAGEMENT_CLIENT_ID` | Management OAuth application client ID |
 | `SUPABASE_MANAGEMENT_CLIENT_SECRET` | Management OAuth application client secret |
 | `CREDENTIAL_ENCRYPTION_KEY` | A stable base64-encoded 32-byte random key |
+| `GITHUB_APP_ID` | Numeric App ID from GitHub App settings |
+| `GITHUB_APP_SLUG` | App slug, such as `signalcase` |
+| `GITHUB_APP_PRIVATE_KEY` | Entire downloaded `.pem` file, including BEGIN/END lines |
+| `GITHUB_API_VERSION` | `2022-11-28` |
 
 Generate the encryption key locally with:
 
@@ -122,7 +157,7 @@ cd website
 npm run dev
 ```
 
-## 6. Build the production Mac app
+## 7. Build the production Mac app
 
 Save the public production configuration once:
 
@@ -141,7 +176,7 @@ The app is created at `macOS/.build/Signalcase.app`. The build script registers 
 
 The build checks `macOS/.env.build` first. If that file does not exist, it reads the three public values from `website/.env.local`, which keeps the existing localhost workflow working.
 
-## 7. Verify the real end-to-end flow
+## 8. Verify the real end-to-end flow
 
 1. Start or deploy the website server.
 2. Open the newly built Signalcase app.
@@ -160,6 +195,16 @@ select * from public.signalcase_connection_test_table_that_does_not_exist;
 10. In Signalcase, click **Sync logs**, select Supabase, choose the last 15 minutes, and sync.
 11. Confirm a database-error case appears. Open it and verify its source is Supabase rather than demo data.
 
+To verify GitHub:
+
+1. Open **Settings** → **Connections** → **GitHub**.
+2. Click **Connect GitHub**. The default browser opens GitHub's installation screen.
+3. Choose an account, approve only the repository Signalcase should read, and click **Install**.
+4. The browser returns to the existing Signalcase window. One approved repository is selected automatically; otherwise choose one in the app.
+5. Run a GitHub Actions workflow that fails, or select a recent time window containing an existing failure.
+6. In Signalcase, click **Sync logs**, include GitHub, and sync.
+7. Confirm the failed workflow appears as a GitHub case with its branch, run number, actor, commit SHA, and link back to the Actions run.
+
 To verify production Application Logs:
 
 1. Open **Settings** → **Connections** → **Application Logs**.
@@ -169,4 +214,4 @@ To verify production Application Logs:
 5. Reopen Signalcase, click **Sync logs**, select Application Logs, and sync the matching time window.
 6. Confirm the application error appears and that its request ID can correlate with Render or Supabase evidence.
 
-If authorization succeeds but project selection or sync returns `403`, confirm the Management OAuth app has **Projects · Read** and **Analytics · Read**, then disconnect and reconnect so both scopes are granted. If the app reports missing cloud configuration, rebuild the app with the three public values in step 6.
+If authorization succeeds but project selection or sync returns `403`, confirm the Management OAuth app has **Projects · Read** and **Analytics · Read**, then disconnect and reconnect so both scopes are granted. If the app reports missing cloud configuration, rebuild the app with the three public values in step 7.

@@ -932,6 +932,58 @@ enum ApplicationEventProvider {
     }
 }
 
+enum GitHubProvider {
+    static func normalize(_ payload: Any) -> [LogEvent] {
+        guard let dictionary = payload as? [String: Any],
+              let runs = dictionary["workflow_runs"] as? [[String: Any]] else { return [] }
+        let repository = string(dictionary, "repository")
+        return runs.compactMap { run in
+            let status = (string(run, "status") ?? "").lowercased()
+            let conclusion = (string(run, "conclusion") ?? "").lowercased()
+            guard status == "completed", !conclusion.isEmpty else { return nil }
+            let failures = Set(["failure", "timed_out", "action_required", "startup_failure", "stale"])
+            let level: EventLevel
+            if failures.contains(conclusion) { level = .error }
+            else if conclusion == "cancelled" { level = .warning }
+            else { level = .success }
+
+            let name = string(run, "name") ?? string(run, "display_title") ?? "GitHub Actions"
+            let branch = string(run, "head_branch")
+            let event = string(run, "event")
+            let runNumber = string(run, "run_number")
+            let actor = (run["actor"] as? [String: Any]).flatMap { string($0, "login") }
+            let details = [
+                event.map { "\($0) event" },
+                branch.map { "branch \($0)" },
+                runNumber.map { "run #\($0)" },
+                actor.map { "by \($0)" },
+            ].compactMap { $0 }.joined(separator: " · ")
+            let title = failures.contains(conclusion)
+                ? "\(name) failed"
+                : (conclusion == "cancelled" ? "\(name) was cancelled" : "\(name) passed")
+            return LogEvent(
+                timestamp: DateParser.parse(run["updated_at"]) ?? DateParser.parse(run["created_at"]) ?? Date(),
+                source: .github,
+                level: level,
+                title: title,
+                detail: details.isEmpty ? "GitHub Actions finished with \(conclusion)." : details,
+                externalID: string(run, "id"),
+                userID: actor,
+                release: string(run, "head_sha"),
+                route: string(run, "html_url"),
+                fingerprint: "github:workflow:\(string(run, "workflow_id") ?? name.lowercased()):\(conclusion)",
+                metadata: [
+                    "providerSeverity": failures.contains(conclusion) ? "error" : conclusion,
+                    "conclusion": conclusion,
+                    "repository": repository ?? "",
+                    "branch": branch ?? "",
+                    "url": string(run, "html_url") ?? "",
+                ].filter { !$0.value.isEmpty }
+            )
+        }
+    }
+}
+
 // MARK: - Flexible JSON helpers
 
 func rows(from payload: Any) -> [[String: Any]] {

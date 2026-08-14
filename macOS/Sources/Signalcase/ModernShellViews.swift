@@ -551,6 +551,7 @@ private func modernSeverityColor(_ severity: CaseSeverity) -> Color {
 private func modernSourceColor(_ source: LogSource) -> Color {
     switch source {
     case .supabase: SignalTheme.lime
+    case .github: SignalTheme.text
     case .stripe: SignalTheme.purple
     case .render: SignalTheme.blue
     case .revenueCat: SignalTheme.yellow

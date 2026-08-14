@@ -158,6 +158,7 @@ enum FeedbackKind: String, CaseIterable, Identifiable {
 
 enum LogSource: String, CaseIterable, Codable, Identifiable, Hashable {
     case supabase
+    case github
     case stripe
     case render
     case revenueCat
@@ -169,6 +170,7 @@ enum LogSource: String, CaseIterable, Codable, Identifiable, Hashable {
     var title: String {
         switch self {
         case .supabase: "Supabase"
+        case .github: "GitHub"
         case .stripe: "Stripe"
         case .render: "Render"
         case .revenueCat: "RevenueCat"
@@ -180,6 +182,7 @@ enum LogSource: String, CaseIterable, Codable, Identifiable, Hashable {
     var shortTitle: String {
         switch self {
         case .supabase: "SB"
+        case .github: "GH"
         case .stripe: "ST"
         case .render: "RD"
         case .revenueCat: "RC"
@@ -191,6 +194,7 @@ enum LogSource: String, CaseIterable, Codable, Identifiable, Hashable {
     var systemImage: String {
         switch self {
         case .supabase: "cylinder.split.1x2.fill"
+        case .github: "chevron.left.forwardslash.chevron.right"
         case .stripe: "creditcard.fill"
         case .render: "server.rack"
         case .revenueCat: "crown.fill"

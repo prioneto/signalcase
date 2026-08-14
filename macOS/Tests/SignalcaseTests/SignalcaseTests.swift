@@ -70,6 +70,36 @@ final class SignalcaseTests: XCTestCase {
         XCTAssertEqual(status.externalProjectRef, "yxktiawnvessjwzpwphs")
     }
 
+    func testGitHubFailedWorkflowBecomesActionableEvidence() throws {
+        let payload: [String: Any] = [
+            "repository": "signalcase/app",
+            "workflow_runs": [[
+                "id": 42,
+                "workflow_id": 9,
+                "name": "Tests",
+                "status": "completed",
+                "conclusion": "failure",
+                "event": "push",
+                "head_branch": "main",
+                "head_sha": "abc123",
+                "run_number": 18,
+                "html_url": "https://github.com/signalcase/app/actions/runs/42",
+                "created_at": "2026-08-14T08:00:00Z",
+                "updated_at": "2026-08-14T08:02:00Z",
+                "actor": ["login": "octocat"],
+            ]],
+        ]
+
+        let event = try XCTUnwrap(GitHubProvider.normalize(payload).first)
+
+        XCTAssertEqual(event.source, .github)
+        XCTAssertEqual(event.level, .error)
+        XCTAssertEqual(event.title, "Tests failed")
+        XCTAssertEqual(event.release, "abc123")
+        XCTAssertEqual(event.externalID, "42")
+        XCTAssertTrue(SignalDetector.isCandidate(event))
+    }
+
     func testResolvedCaseReopensOnlyForANewerOccurrence() {
         let now = Date()
         let first = LogEvent(
