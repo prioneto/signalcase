@@ -545,6 +545,11 @@ enum StripeProvider {
 }
 
 enum RenderProvider {
+    struct DiscoveryResult: Equatable {
+        let workspaces: [RenderWorkspaceOption]
+        let services: [RenderServiceOption]
+    }
+
     struct LogPageCursor: Equatable {
         let startTime: String
         let endTime: String
@@ -552,6 +557,148 @@ enum RenderProvider {
 
     private static let pageSize = 100
     private static let maximumPages = 50
+
+    static func discover(token: String) async throws -> DiscoveryResult {
+        let cleanToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanToken.isEmpty else { throw ProviderError.invalidConfiguration("Paste your Render API key first.") }
+        let headers = ["Authorization": "Bearer \(cleanToken)"]
+
+        async let workspaceRows = discoveryRows(
+            endpoint: "https://api.render.com/v1/owners",
+            queryItems: [],
+            headers: headers
+        )
+        async let serviceRows = discoveryRows(
+            endpoint: "https://api.render.com/v1/services",
+            queryItems: [.init(name: "includePreviews", value: "false")],
+            headers: headers
+        )
+
+        let workspaces = normalizeWorkspaces(try await workspaceRows)
+        let services = normalizeServices(try await serviceRows)
+            .filter { $0.type != "static_site" }
+        guard !workspaces.isEmpty else {
+            throw ProviderError.unsupportedPayload("Render did not return any accessible workspaces for this API key.")
+        }
+        return DiscoveryResult(workspaces: workspaces, services: services)
+    }
+
+    static func normalizeWorkspaces(_ payload: Any) -> [RenderWorkspaceOption] {
+        var seen = Set<String>()
+        return rows(from: payload).compactMap { wrapper in
+            let owner = wrapper["owner"] as? [String: Any]
+                ?? wrapper["workspace"] as? [String: Any]
+                ?? wrapper
+            guard let id = nonempty(string(owner, "id")), seen.insert(id).inserted else { return nil }
+            let email = nonempty(string(owner, "email"))
+            let name = nonempty(string(owner, "name")) ?? email ?? "Render workspace"
+            return RenderWorkspaceOption(id: id, name: name, email: email)
+        }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    static func normalizeServices(_ payload: Any) -> [RenderServiceOption] {
+        var seen = Set<String>()
+        return rows(from: payload).compactMap { wrapper in
+            let service = wrapper["service"] as? [String: Any] ?? wrapper
+            guard let id = nonempty(string(service, "id")),
+                  let ownerID = nonempty(string(service, "ownerId") ?? string(service, "owner_id")),
+                  seen.insert(id).inserted else { return nil }
+            return RenderServiceOption(
+                id: id,
+                ownerID: ownerID,
+                name: nonempty(string(service, "name")) ?? id,
+                type: nonempty(string(service, "type")) ?? "service",
+                repositoryURL: nonempty(string(service, "repo")),
+                branch: nonempty(string(service, "branch"))
+            )
+        }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    static func recommendedServices(
+        from services: [RenderServiceOption],
+        projectName: String
+    ) -> [RenderServiceOption] {
+        let projectKey = comparisonKey(projectName)
+        guard !services.isEmpty else { return [] }
+
+        let repositoryMatches = projectKey.isEmpty ? [] : services.filter {
+            comparisonKey($0.repositoryName ?? "") == projectKey
+        }
+        if let selection = unambiguousOwnerSelection(repositoryMatches, allServices: services) {
+            return selection
+        }
+
+        let exactNameMatches = projectKey.isEmpty ? [] : services.filter {
+            comparisonKey($0.name) == projectKey
+        }
+        if let selection = unambiguousOwnerSelection(exactNameMatches, allServices: services) {
+            return selection
+        }
+
+        let prefixedNameMatches = projectKey.count < 3 ? [] : services.filter {
+            comparisonKey($0.name).hasPrefix(projectKey)
+        }
+        if let selection = unambiguousOwnerSelection(prefixedNameMatches, allServices: services) {
+            return selection
+        }
+
+        let owners = Set(services.map(\.ownerID))
+        return owners.count == 1 && services.count == 1 ? services : []
+    }
+
+    private static func unambiguousOwnerSelection(
+        _ matches: [RenderServiceOption],
+        allServices: [RenderServiceOption]
+    ) -> [RenderServiceOption]? {
+        guard !matches.isEmpty else { return nil }
+        let owners = Set(matches.map(\.ownerID))
+        guard owners.count == 1, let ownerID = owners.first else { return nil }
+        let repositories = Set(matches.compactMap { normalizedRepository($0.repositoryURL) })
+        if repositories.count == 1, let repository = repositories.first {
+            return allServices.filter {
+                $0.ownerID == ownerID && normalizedRepository($0.repositoryURL) == repository
+            }
+        }
+        return matches.filter { $0.ownerID == ownerID }
+    }
+
+    private static func comparisonKey(_ value: String) -> String {
+        String(value.lowercased().filter { $0.isLetter || $0.isNumber })
+    }
+
+    private static func normalizedRepository(_ value: String?) -> String? {
+        guard let value = nonempty(value) else { return nil }
+        return value.lowercased()
+            .replacingOccurrences(of: "https://", with: "")
+            .replacingOccurrences(of: "http://", with: "")
+            .replacingOccurrences(of: "git@", with: "")
+            .replacingOccurrences(of: ":", with: "/")
+            .replacingOccurrences(of: ".git", with: "")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    }
+
+    private static func discoveryRows(
+        endpoint: String,
+        queryItems: [URLQueryItem],
+        headers: [String: String]
+    ) async throws -> [[String: Any]] {
+        var collected: [[String: Any]] = []
+        var cursor: String?
+        for _ in 0..<maximumPages {
+            var components = URLComponents(string: endpoint)!
+            var items = queryItems + [.init(name: "limit", value: "\(pageSize)")]
+            if let cursor { items.append(.init(name: "cursor", value: cursor)) }
+            components.queryItems = items
+            let payload = try await APIClient.json(url: components.url!, headers: headers)
+            let page = rows(from: payload)
+            collected.append(contentsOf: page)
+            guard page.count >= pageSize,
+                  let next = page.last.flatMap({ nonempty(string($0, "cursor")) }),
+                  next != cursor else { break }
+            cursor = next
+        }
+        return collected
+    }
 
     static func fetchBatch(
         configuration: ProviderConfiguration,

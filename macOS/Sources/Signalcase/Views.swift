@@ -892,9 +892,14 @@ private struct SettingsSheet: View {
                     .help("Close settings")
                     .keyboardShortcut(.cancelAction)
                 }
-                .padding(.bottom, 24)
+                .padding(.bottom, 22)
 
-                VStack(spacing: 5) {
+                Text("PREFERENCES")
+                    .sectionLabel()
+                    .padding(.horizontal, 11)
+                    .padding(.bottom, 8)
+
+                VStack(spacing: 4) {
                     ForEach(SettingsSection.allCases) { section in
                         settingsButton(section)
                     }
@@ -944,8 +949,12 @@ private struct SettingsSheet: View {
             .font(.system(size: 11.5, weight: selected ? .semibold : .regular))
             .foregroundStyle(selected ? SignalTheme.text : SignalTheme.muted)
             .padding(.horizontal, 11)
-            .frame(height: 38)
-            .background(selected ? SignalTheme.surface : Color.clear, in: RoundedRectangle(cornerRadius: 10))
+            .frame(height: 40)
+            .background(selected ? SignalTheme.raised : Color.clear, in: RoundedRectangle(cornerRadius: 10))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(selected ? SignalTheme.border : Color.clear)
+            }
             .contentShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(HoverButtonStyle())
@@ -1141,30 +1150,29 @@ private struct FeedbackSheet: View {
 private struct GeneralSettingsView: View {
     @EnvironmentObject private var model: AppModel
     @State private var newProjectName = ""
-    @State private var isProjectSelectorPresented = false
     @State private var isCreatingProject = false
+    @State private var isProjectPickerPresented = false
     @FocusState private var isProjectNameFocused: Bool
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 28) {
                 VStack(alignment: .leading, spacing: 5) {
                     Text("GENERAL").sectionLabel()
-                    Text("Settings")
+                    Text("General")
                         .font(.system(size: 22, weight: .bold, design: .rounded))
-                    Text("Workspace and app preferences")
+                    Text("Your account, current project, and sync preferences.")
                         .font(.system(size: 10.5))
                         .foregroundStyle(SignalTheme.muted)
                 }
 
-                VStack(alignment: .leading, spacing: 9) {
-                    Text("WORKSPACE").sectionLabel()
+                settingsSection("ACCOUNT") {
                     VStack(spacing: 0) {
                         settingsRow(
                             icon: model.isSignedIn ? "person.crop.circle.fill.badge.checkmark" : "person.crop.circle",
                             tint: model.isSignedIn ? SignalTheme.lime : SignalTheme.muted,
                             title: model.cloudEmail ?? "Signalcase account",
-                            detail: model.isSignedIn ? "Signed in · team connections are available" : "Sign in to connect team services securely",
+                            detail: model.isSignedIn ? "Signed in" : "Sign in to use projects and connections",
                             actionTitle: model.isCloudBusy ? "Cancel" : (model.isSignedIn ? "Sign out" : "Sign in")
                         ) {
                             Task {
@@ -1173,30 +1181,16 @@ private struct GeneralSettingsView: View {
                                 else { await model.signInToSignalcase() }
                             }
                         }
-                        rowDivider
-                        projectManager
-                        rowDivider
-                        settingsRow(
-                            icon: "point.3.connected.trianglepath.dotted",
-                            tint: SignalTheme.blue,
-                            title: model.connectedCount == 1 ? "1 connection" : "\(model.connectedCount) connections",
-                            detail: "Supabase, Render, and Application Logs",
-                            actionTitle: "Manage"
-                        ) { model.settingsSection = .connections }
-                        rowDivider
-                        settingsRow(
-                            icon: "list.bullet.rectangle",
-                            tint: SignalTheme.purple,
-                            title: "Activity & data",
-                            detail: model.lastSyncReport?.summary ?? "No sync activity yet",
-                            actionTitle: "Open"
-                        ) { model.settingsSection = .activity }
                     }
-                    .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 12))
+                    .settingsSurface()
                 }
 
-                VStack(alignment: .leading, spacing: 9) {
-                    Text("AUTOMATIC SYNC").sectionLabel()
+                settingsSection("PROJECT") {
+                    projectManager
+                        .settingsSurface()
+                }
+
+                settingsSection("SYNC") {
                     VStack(spacing: 0) {
                         HStack(spacing: 13) {
                             Image(systemName: "arrow.triangle.2.circlepath")
@@ -1245,11 +1239,10 @@ private struct GeneralSettingsView: View {
                             .frame(height: 52)
                         }
                     }
-                    .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 12))
+                    .settingsSurface()
                 }
 
-                VStack(alignment: .leading, spacing: 9) {
-                    Text("HELP").sectionLabel()
+                settingsSection("HELP") {
                     VStack(spacing: 0) {
                         settingsRow(
                             icon: "sparkles",
@@ -1260,7 +1253,7 @@ private struct GeneralSettingsView: View {
                             action: model.restartOnboarding
                         )
                     }
-                    .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 12))
+                    .settingsSurface()
                 }
             }
             .padding(26)
@@ -1270,242 +1263,200 @@ private struct GeneralSettingsView: View {
         .background(SignalTheme.background)
     }
 
+    private func settingsSection<Content: View>(
+        _ title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title).sectionLabel()
+            content()
+        }
+    }
+
     private var projectManager: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(spacing: 0) {
             HStack(spacing: 13) {
-                Image(systemName: "rectangle.stack.fill")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(SignalTheme.lime)
-                    .frame(width: 28, height: 28)
-                    .background(SignalTheme.lime.opacity(0.09), in: RoundedRectangle(cornerRadius: 8))
+                Image(systemName: model.cloudProjectID == nil ? "rectangle.stack.badge.plus" : "rectangle.stack.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(model.cloudProjectID == nil ? SignalTheme.muted : SignalTheme.lime)
+                    .frame(width: 34, height: 34)
+                    .background(
+                        (model.cloudProjectID == nil ? SignalTheme.muted : SignalTheme.lime).opacity(0.09),
+                        in: RoundedRectangle(cornerRadius: 9)
+                    )
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Projects")
+                    Text(model.projectName)
                         .font(.system(size: 11.5, weight: .semibold))
-                    Text("Each project keeps separate cases, connections, and history")
-                        .font(.system(size: 9.5))
+                        .lineLimit(1)
+                    Text(model.isSignedIn
+                        ? (model.cloudProjectID == nil ? "Choose or create a project" : "Current project")
+                        : "Sign in to use projects")
+                        .font(.system(size: 9.25))
                         .foregroundStyle(SignalTheme.muted)
                 }
                 Spacer()
-                if model.isSignedIn {
-                    Text("\(model.cloudProjects.count)")
-                        .font(.system(size: 8.5, weight: .bold, design: .monospaced))
-                        .foregroundStyle(SignalTheme.muted)
-                        .padding(.horizontal, 8)
-                        .frame(height: 23)
-                        .background(SignalTheme.raised, in: Capsule())
-                }
-            }
 
-            if model.isSignedIn {
-                if model.cloudProjects.isEmpty {
-                    HStack(spacing: 10) {
-                        Image(systemName: "rectangle.stack.badge.plus")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(SignalTheme.muted)
+                if model.isSignedIn, !isCreatingProject {
+                    if model.cloudProjects.count > 1 || (model.cloudProjectID == nil && !model.cloudProjects.isEmpty) {
+                        projectPickerButton
+                    }
+                    Button(action: beginCreatingProject) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 9.5, weight: .bold))
+                            .foregroundStyle(SignalTheme.text)
                             .frame(width: 30, height: 30)
                             .background(SignalTheme.raised, in: RoundedRectangle(cornerRadius: 8))
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("No projects yet")
-                                .font(.system(size: 10.5, weight: .semibold))
-                            Text("Create one to keep your cases and connections together")
-                                .font(.system(size: 8.5))
-                                .foregroundStyle(SignalTheme.muted)
-                        }
-                        Spacer()
-                    }
-                    .padding(.horizontal, 10)
-                    .frame(height: 50)
-                    .background(SignalTheme.background, in: RoundedRectangle(cornerRadius: 10))
-                    .overlay { RoundedRectangle(cornerRadius: 10).stroke(SignalTheme.border) }
-                } else {
-                    projectSelector
-                }
-
-                if isCreatingProject {
-                    projectCreator
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                } else {
-                    Button {
-                        withAnimation(.easeOut(duration: 0.16)) {
-                            isProjectSelectorPresented = false
-                            isCreatingProject = true
-                        }
-                        isProjectNameFocused = true
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "plus")
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundStyle(SignalTheme.lime)
-                            Text("Create new project")
-                                .font(.system(size: 9.5, weight: .semibold))
-                            Spacer()
-                        }
-                        .padding(.horizontal, 10)
-                        .frame(height: 34)
-                        .contentShape(RoundedRectangle(cornerRadius: 8))
+                            .contentShape(RoundedRectangle(cornerRadius: 8))
                     }
                     .buttonStyle(HoverButtonStyle())
                     .focusEffectDisabled()
+                    .help("New project")
                 }
-            } else {
-                Text("Sign in above to create and switch projects.")
-                    .font(.system(size: 9.5))
-                    .foregroundStyle(SignalTheme.muted)
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 64)
+
+            if isCreatingProject {
+                rowDivider
+                projectCreator
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            } else if isProjectPickerPresented {
+                rowDivider
+                projectPickerPanel
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .padding(14)
     }
 
-    private var projectSelector: some View {
-        let selected = model.cloudProjects.first { $0.id == model.cloudProjectID }
+    private var projectPickerButton: some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.16)) {
+                isProjectPickerPresented.toggle()
+            }
+        } label: {
+            HStack(spacing: 7) {
+                Text(model.cloudProjectID == nil ? "Choose" : "Switch")
+                    .font(.system(size: 9.5, weight: .semibold))
+                Image(systemName: isProjectPickerPresented ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 7.5, weight: .bold))
+                    .foregroundStyle(SignalTheme.muted)
+            }
+            .foregroundStyle(SignalTheme.text)
+            .padding(.horizontal, 10)
+            .frame(height: 30)
+            .background(
+                isProjectPickerPresented ? SignalTheme.raisedHover : SignalTheme.raised,
+                in: RoundedRectangle(cornerRadius: 8)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(isProjectPickerPresented ? SignalTheme.lime.opacity(0.32) : SignalTheme.border)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(HoverButtonStyle())
+        .focusEffectDisabled()
+        .fixedSize()
+    }
+
+    private var projectPickerPanel: some View {
+        VStack(spacing: 4) {
+            ForEach(model.cloudProjects) { project in
+                projectPickerOption(project)
+            }
+        }
+        .padding(8)
+    }
+
+    private func projectPickerOption(_ project: CloudProject) -> some View {
+        let isSelected = model.cloudProjectID == project.id
         return Button {
-            isProjectSelectorPresented.toggle()
+            guard !isSelected else { return }
+            withAnimation(.easeOut(duration: 0.16)) {
+                isProjectPickerPresented = false
+            }
+            model.selectProject(project)
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: "rectangle.stack.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(SignalTheme.lime)
-                    .frame(width: 32, height: 32)
-                    .background(SignalTheme.lime.opacity(0.10), in: RoundedRectangle(cornerRadius: 9))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(selected?.name ?? "Choose a project")
-                        .font(.system(size: 10.5, weight: .semibold))
-                        .foregroundStyle(SignalTheme.text)
-                        .lineLimit(1)
-                    Text(selected == nil ? "No project selected" : "Current project")
-                        .font(.system(size: 8.5))
-                        .foregroundStyle(SignalTheme.muted)
-                }
-                Spacer()
-                Image(systemName: isProjectSelectorPresented ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(SignalTheme.muted)
-                    .frame(width: 26, height: 26)
-                    .background(SignalTheme.raised, in: RoundedRectangle(cornerRadius: 7))
-            }
-            .padding(.horizontal, 9)
-            .frame(height: 50)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isProjectSelectorPresented ? SignalTheme.raised : SignalTheme.background, in: RoundedRectangle(cornerRadius: 10))
-            .overlay {
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(isProjectSelectorPresented ? SignalTheme.lime.opacity(0.32) : SignalTheme.border)
-            }
-            .contentShape(RoundedRectangle(cornerRadius: 10))
-        }
-        .buttonStyle(ModernPressableButtonStyle(scale: 0.99))
-        .focusEffectDisabled()
-        .popover(isPresented: $isProjectSelectorPresented, arrowEdge: .bottom) {
-            projectSelectorPanel
-        }
-    }
-
-    private var projectSelectorPanel: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("SELECT PROJECT").sectionLabel()
-                Text("Switch cases, connections, and history")
-                    .font(.system(size: 8.5))
-                    .foregroundStyle(SignalTheme.muted)
-            }
-            .padding(.horizontal, 4)
-            .padding(.bottom, 2)
-
-            ScrollView {
-                VStack(spacing: 3) {
-                    ForEach(model.cloudProjects) { project in
-                        projectOption(project)
-                    }
-                }
-            }
-            .frame(maxHeight: 230)
-        }
-        .padding(10)
-        .frame(width: 290)
-        .background(SignalTheme.sidebar)
-        .foregroundStyle(SignalTheme.text)
-    }
-
-    private func projectOption(_ project: CloudProject) -> some View {
-        let isSelected = model.cloudProjectID == project.id
-        return Button {
-            isProjectSelectorPresented = false
-            model.selectProject(project)
-        } label: {
-            HStack(spacing: 9) {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "rectangle.stack")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(isSelected ? SignalTheme.lime : SignalTheme.muted)
                     .frame(width: 28, height: 28)
                     .background(
-                        isSelected ? SignalTheme.lime.opacity(0.10) : SignalTheme.surface,
+                        (isSelected ? SignalTheme.lime : SignalTheme.muted).opacity(0.09),
                         in: RoundedRectangle(cornerRadius: 8)
                     )
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(project.name)
-                        .font(.system(size: 10.5, weight: .semibold))
-                        .lineLimit(1)
-                    Text(isSelected ? "Current project" : project.slug)
-                        .font(.system(size: 8.5))
-                        .foregroundStyle(SignalTheme.muted)
-                        .lineLimit(1)
-                }
+
+                Text(project.name)
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundStyle(SignalTheme.text)
+                    .lineLimit(1)
+
                 Spacer()
-                if !isSelected {
+
+                if isSelected {
+                    Text("Current")
+                        .font(.system(size: 8.5, weight: .semibold))
+                        .foregroundStyle(SignalTheme.lime)
+                } else {
                     Image(systemName: "arrow.right")
                         .font(.system(size: 8, weight: .semibold))
                         .foregroundStyle(SignalTheme.muted)
                 }
             }
             .padding(.horizontal, 8)
-            .frame(height: 44)
+            .frame(height: 42)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isSelected ? SignalTheme.raised : Color.clear, in: RoundedRectangle(cornerRadius: 9))
+            .background(isSelected ? SignalTheme.lime.opacity(0.06) : Color.clear, in: RoundedRectangle(cornerRadius: 9))
             .contentShape(RoundedRectangle(cornerRadius: 9))
         }
-        .buttonStyle(ModernPressableButtonStyle(scale: 0.985))
+        .buttonStyle(HoverButtonStyle())
         .focusEffectDisabled()
+        .disabled(isSelected)
     }
 
     private var projectCreator: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("NEW PROJECT").sectionLabel()
+        HStack(spacing: 8) {
             HStack(spacing: 8) {
-                HStack(spacing: 8) {
-                    Image(systemName: "rectangle.stack.badge.plus")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(SignalTheme.muted)
-                    TextField("Project name", text: $newProjectName)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 10.5, weight: .medium))
-                        .focused($isProjectNameFocused)
-                        .onSubmit(createProject)
-                }
-                .padding(.horizontal, 10)
-                .frame(height: 38)
-                .background(SignalTheme.background, in: RoundedRectangle(cornerRadius: 9))
-                .overlay { RoundedRectangle(cornerRadius: 9).stroke(SignalTheme.border) }
-
-                Button("Cancel") {
-                    withAnimation(.easeOut(duration: 0.16)) {
-                        isCreatingProject = false
-                        newProjectName = ""
-                    }
-                }
-                .buttonStyle(QuietButtonStyle())
-
-                Button(model.isCloudBusy ? "Creating…" : "Create", action: createProject)
-                    .buttonStyle(PrimaryButtonStyle())
-                    .disabled(cleanProjectName.isEmpty || model.isCloudBusy)
+                Image(systemName: "rectangle.stack.badge.plus")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(SignalTheme.muted)
+                TextField("Project name", text: $newProjectName)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 10.5, weight: .medium))
+                    .focused($isProjectNameFocused)
+                    .onSubmit(createProject)
             }
+            .padding(.horizontal, 10)
+            .frame(height: 38)
+            .background(SignalTheme.background, in: RoundedRectangle(cornerRadius: 9))
+            .overlay { RoundedRectangle(cornerRadius: 9).stroke(SignalTheme.border) }
+
+            Button("Cancel") {
+                withAnimation(.easeOut(duration: 0.16)) {
+                    isCreatingProject = false
+                    newProjectName = ""
+                }
+            }
+            .buttonStyle(QuietButtonStyle())
+
+            Button(model.isCloudBusy ? "Creating…" : "Create", action: createProject)
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(cleanProjectName.isEmpty || model.isCloudBusy)
         }
-        .padding(10)
-        .background(SignalTheme.raised.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
-        .overlay { RoundedRectangle(cornerRadius: 10).stroke(SignalTheme.border) }
+        .padding(12)
     }
 
     private var cleanProjectName: String {
         newProjectName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func beginCreatingProject() {
+        withAnimation(.easeOut(duration: 0.16)) {
+            isProjectPickerPresented = false
+            isCreatingProject = true
+        }
+        isProjectNameFocused = true
     }
 
     private func createProject() {
@@ -1563,6 +1514,8 @@ private struct ConnectionsSettingsView: View {
     @State private var token = ""
     @State private var authorizationHeader = ""
     @State private var signingSecret = ""
+    @State private var showsApplicationSetup = false
+    @State private var showsLocalApplicationSetup = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -1570,7 +1523,7 @@ private struct ConnectionsSettingsView: View {
                 Text("CONNECTIONS").sectionLabel()
                 Text("Evidence sources")
                     .font(.system(size: 22, weight: .bold, design: .rounded))
-                Text("Choose a source and follow its setup guide.")
+                Text("Connect the places where failures appear.")
                     .font(.system(size: 11))
                     .foregroundStyle(SignalTheme.muted)
             }
@@ -1604,9 +1557,12 @@ private struct ConnectionsSettingsView: View {
                             .buttonStyle(HoverButtonStyle())
                         }
                     }
+                    .padding(6)
                 }
                 .frame(width: 184)
                 .frame(maxHeight: .infinity)
+                .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 11))
+                .overlay { RoundedRectangle(cornerRadius: 11).stroke(SignalTheme.border) }
 
                 VStack(spacing: 0) {
                     ScrollView {
@@ -1642,6 +1598,8 @@ private struct ConnectionsSettingsView: View {
             token = ""
             authorizationHeader = ""
             signingSecret = ""
+            showsApplicationSetup = false
+            showsLocalApplicationSetup = false
         }
     }
 
@@ -1691,8 +1649,13 @@ private struct ConnectionsSettingsView: View {
                 }
                     .buttonStyle(QuietButtonStyle())
             }
+            if selectedSource == .render, model.isRenderDiscoveryActive {
+                Button("Cancel") { model.cancelRenderDiscovery() }
+                    .buttonStyle(QuietButtonStyle())
+            }
             if let state = integration(for: selectedSource)?.state,
-               [.connected, .waitingForEvent].contains(state) {
+               [.connected, .waitingForEvent].contains(state),
+               !(selectedSource == .render && model.isRenderDiscoveryActive) {
                 Button("Disconnect") { model.disconnect(selectedSource) }
                     .buttonStyle(QuietButtonStyle())
             }
@@ -1715,6 +1678,50 @@ private struct ConnectionsSettingsView: View {
                 Text("Choose a project above")
                     .font(.system(size: 9.5, weight: .medium))
                     .foregroundStyle(SignalTheme.muted)
+            } else if selectedSource == .render {
+                if model.isRenderDiscoveryActive {
+                    Button {
+                        Task { await model.connectSelectedRenderServices() }
+                    } label: {
+                        Text(model.isCloudBusy
+                            ? "Checking logs…"
+                            : "Connect \(model.selectedRenderServiceIDs.count) service\(model.selectedRenderServiceIDs.count == 1 ? "" : "s")")
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .disabled(model.isCloudBusy || model.selectedRenderWorkspaceID == nil || model.selectedRenderServiceIDs.isEmpty)
+                } else if integration(for: .render)?.state == .connected {
+                    Button {
+                        Task { await model.discoverRender() }
+                    } label: {
+                        Text(model.isCloudBusy ? "Refreshing…" : "Change services")
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .disabled(model.isCloudBusy)
+                } else {
+                    Button {
+                        Task { await model.discoverRender(token: token) }
+                    } label: {
+                        Text(model.isCloudBusy ? "Finding services…" : "Find my services")
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .disabled(model.isCloudBusy || token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            } else if selectedSource == .application {
+                if model.productionApplicationAuthorization.isEmpty {
+                    Button {
+                        Task { await model.saveConnection(source: .application, token: "") }
+                    } label: {
+                        Text(model.isCloudBusy ? "Creating…" : "Create endpoint")
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .disabled(model.isCloudBusy)
+                } else {
+                    Text(integration(for: .application)?.state == .connected
+                        ? "Receiving application errors"
+                        : "Send one error to finish setup")
+                        .font(.system(size: 9.5, weight: .medium))
+                        .foregroundStyle(SignalTheme.muted)
+                }
             } else {
                 Button {
                     Task {
@@ -1726,9 +1733,7 @@ private struct ConnectionsSettingsView: View {
                         )
                     }
                 } label: {
-                    Text(selectedSource == .application
-                        ? (model.productionApplicationAuthorization.isEmpty ? "Create production endpoint" : "Rotate secret")
-                        : "Save & test")
+                    Text("Save & test")
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .disabled(model.isCloudBusy)
@@ -1740,89 +1745,380 @@ private struct ConnectionsSettingsView: View {
     private var configurationFields: some View {
         switch selectedSource {
         case .supabase:
-            sourceExplanation(
-                "What this adds",
-                "Database errors, authentication failures, RLS denials, and Edge Function logs. Signalcase reads logs only after you approve access in Supabase."
+            connectionProgress(
+                ["Authorize", "Choose project", "Ready"],
+                current: integration(for: .supabase)?.state == .connected
+                    ? 3
+                    : (model.supabaseProjects.isEmpty ? 0 : 1)
             )
             if model.supabaseProjects.isEmpty {
                 if model.selectedSupabaseProject != nil || !model.configuration.supabaseProjectRef.isEmpty {
                     selectedSupabaseProjectCard
                 } else {
-                    setupStep(1, "Authorize in your browser", "Connect opens Supabase in your default browser. Sign in and approve read-only access to projects and logs; no key or project ID is pasted into Signalcase.") {
-                        setupResult("Signalcase receives a short-lived OAuth token and keeps it encrypted on the server.", icon: "checkmark.shield.fill", tint: SignalTheme.lime)
-                    }
-                    setupStep(2, "Choose a project", "After approval, Signalcase retrieves the projects your Supabase account can access. One project is selected automatically; otherwise you choose it here.") {
-                        setupResult("Only the selected project's logs will be read.", icon: "rectangle.stack.fill", tint: SignalTheme.blue)
-                    }
+                    setupPrompt(
+                        "Authorize Supabase",
+                        "Sign in in your browser, then choose a project.",
+                        icon: "arrow.up.right.square.fill",
+                        tint: SignalTheme.lime
+                    )
                 }
             } else {
-                setupStep(2, model.isChangingSupabaseProject ? "Choose another project" : "Choose a Supabase project", "Select the Supabase project whose logs should belong to this Signalcase project.") {
-                    VStack(spacing: 7) {
-                        ForEach(model.supabaseProjects) { project in
-                            supabaseProjectButton(project)
-                        }
+                compactSection(model.isChangingSupabaseProject ? "Choose another project" : "Choose a project") {
+                    ForEach(model.supabaseProjects) { project in
+                        supabaseProjectButton(project)
                     }
                 }
             }
         case .render:
-            sourceExplanation(
-                "What this adds",
-                "Runtime errors, failed requests, deploys, restarts, and release timing from the Render services you choose."
+            connectionProgress(
+                ["API key", "Choose services", "Ready"],
+                current: integration(for: .render)?.state == .connected && !model.isRenderDiscoveryActive
+                    ? 3
+                    : (model.isRenderDiscoveryActive ? 1 : 0)
             )
-            setupStep(1, "Create a Render API key", "In Render, open Account Settings → API Keys. Create a key and copy it now—Render only shows it once.") {
-                VStack(alignment: .leading, spacing: 9) {
-                    externalLink("Open Render API keys", "https://dashboard.render.com/u/settings#api-keys")
-                    secretField("API KEY", "rnd_…", text: $token)
+            if integration(for: .render)?.state == .connected, !model.isRenderDiscoveryActive {
+                renderConnectionSummary
+            } else if model.isRenderDiscoveryActive {
+                if model.renderWorkspaces.count > 1 {
+                    compactSection("Workspace") {
+                        ForEach(model.renderWorkspaces) { workspace in
+                            renderWorkspaceButton(workspace)
+                        }
+                    }
+                } else if let workspace = model.renderWorkspaces.first {
+                    selectedValueRow("Workspace", workspace.name, icon: "building.2.fill", tint: SignalTheme.purple)
                 }
-            }
-            setupStep(2, "Choose what Signalcase reads", "The owner ID identifies your workspace. Add one or more service IDs separated by commas; service IDs begin with srv-.") {
-                VStack(alignment: .leading, spacing: 9) {
-                    setupField("WORKSPACE OWNER ID", "tea-…", text: $model.configuration.renderOwnerID)
-                    setupField("SERVICE IDS", "srv-abc…, srv-def…", text: $model.configuration.renderResourceIDs)
-                }
-            }
-            setupStep(3, "Test the connection", "Save & test checks the last five minutes. Signalcase stores the API key in your Mac's Keychain.") {
-                setupResult("Only the selected services are included when you sync.", icon: "server.rack", tint: SignalTheme.purple)
-            }
-        case .application:
-            sourceExplanation(
-                "What this adds",
-                "The error name, message, route, user, release, and request ID from your own code. These details help connect a generic Render 500 to the exact Supabase failure."
-            )
-            setupStep(1, "Create a production receiver", "Signalcase creates a hosted endpoint that keeps collecting while this Mac and the Signalcase app are offline.") {
-                VStack(alignment: .leading, spacing: 9) {
-                    if model.productionApplicationAuthorization.isEmpty {
-                        setupResult("Click Create production endpoint below. The secret is generated securely and shown here.", icon: "cloud.fill", tint: SignalTheme.blue)
+
+                compactSection("Services") {
+                    if model.renderServicesForSelectedWorkspace.isEmpty {
+                        setupResult(
+                            model.selectedRenderWorkspaceID == nil
+                                ? "Choose a workspace to see its services."
+                                : "No services with runtime logs were found in this workspace.",
+                            icon: "server.rack",
+                            tint: SignalTheme.purple
+                        )
                     } else {
-                        copyCard("PRODUCTION EVENT ENDPOINT", applicationEndpoint)
-                        copyCard("AUTHORIZATION HEADER", applicationAuthorization)
+                        ForEach(model.renderServicesForSelectedWorkspace) { service in
+                            renderServiceButton(service)
+                        }
+                    }
+                }
+            } else {
+                compactSection("Paste your API key") {
+                    VStack(alignment: .leading, spacing: 9) {
+                        externalLink("Open Render API keys", "https://dashboard.render.com/u/settings#api-keys")
+                        secretField("API KEY", "rnd_…", text: $token)
                     }
                 }
             }
-            setupStep(2, "Add it to your server", "Copy these values into your production server's environment variables. Never expose the authorization value in browser JavaScript or commit it to Git.") {
-                copyCard("ENVIRONMENT VARIABLES", applicationEnvironment)
-            }
-            setupStep(3, "Send errors with useful context", "Post an event when your app catches an error. A shared request_id is the strongest way to connect it to Render and Supabase.") {
-                copyCard("JAVASCRIPT EXAMPLE", applicationExample)
-            }
-            setupStep(4, "Optional local development", "The same authorization value also starts a localhost receiver while Signalcase is open.") {
-                VStack(alignment: .leading, spacing: 9) {
-                    setupNumberField("LOCAL RECEIVER PORT", value: $model.configuration.revenueCatPort)
-                    copyCard("LOCAL EVENT ENDPOINT", localApplicationEndpoint)
+        case .application:
+            connectionProgress(
+                ["Create endpoint", "Add snippet", "Receive error"],
+                current: integration(for: .application)?.state == .connected
+                    ? 3
+                    : (model.productionApplicationAuthorization.isEmpty ? 0 : 1)
+            )
+            if model.productionApplicationAuthorization.isEmpty {
+                setupPrompt(
+                    "Create an error endpoint",
+                    "Signalcase generates the URL and secret for you.",
+                    icon: "antenna.radiowaves.left.and.right",
+                    tint: SignalTheme.blue
+                )
+            } else if integration(for: .application)?.state == .connected, !showsApplicationSetup {
+                applicationConnectionSummary
+            } else {
+                if integration(for: .application)?.state == .connected {
+                    HStack {
+                        Text("SETUP DETAILS").sectionLabel()
+                        Spacer()
+                        Button("Hide") {
+                            withAnimation(.easeOut(duration: 0.16)) { showsApplicationSetup = false }
+                        }
+                        .buttonStyle(QuietButtonStyle())
+                    }
+                }
+                compactSection("1. Add these variables") {
+                    copyCard("ENVIRONMENT VARIABLES", applicationEnvironment)
+                }
+                compactSection("2. Send errors") {
+                    copyCard("JAVASCRIPT SNIPPET", applicationExample)
+                }
+                Button {
+                    withAnimation(.easeOut(duration: 0.16)) {
+                        showsLocalApplicationSetup.toggle()
+                    }
+                } label: {
+                    HStack {
+                        Label("Local testing", systemImage: "laptopcomputer")
+                        Spacer()
+                        Image(systemName: showsLocalApplicationSetup ? "chevron.up" : "chevron.down")
+                    }
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .foregroundStyle(SignalTheme.muted)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if showsLocalApplicationSetup {
+                    VStack(spacing: 8) {
+                        setupNumberField("PORT", value: $model.configuration.revenueCatPort)
+                        copyCard("LOCAL ENDPOINT", localApplicationEndpoint)
+                    }
                 }
             }
         case .stripe, .revenueCat, .sentry:
-            sourceExplanation("Not currently available", "This connection is hidden from the current Signalcase release.")
+            EmptyView()
         }
     }
 
-    private func setupField(_ label: String, _ placeholder: String, text: Binding<String>) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(label).sectionLabel()
-            TextField(placeholder, text: text).textFieldStyle(.plain)
-                .padding(.horizontal, 10).frame(height: 34)
-                .background(SignalTheme.raised, in: RoundedRectangle(cornerRadius: 8))
+    private func connectionProgress(_ titles: [String], current: Int) -> some View {
+        HStack(spacing: 7) {
+            ForEach(Array(titles.enumerated()), id: \.offset) { index, title in
+                let completed = index < current
+                let active = index == current
+                HStack(spacing: 6) {
+                    Group {
+                        if completed {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 7.5, weight: .bold))
+                        } else {
+                            Text("\(index + 1)")
+                                .font(.system(size: 7.5, weight: .bold, design: .monospaced))
+                        }
+                    }
+                    .foregroundStyle(completed || active ? Color.black : SignalTheme.muted)
+                    .frame(width: 18, height: 18)
+                    .background(
+                        completed || active ? SignalTheme.lime : SignalTheme.raised,
+                        in: Circle()
+                    )
+
+                    Text(title)
+                        .font(.system(size: 8.5, weight: active || completed ? .semibold : .regular))
+                        .foregroundStyle(active || completed ? SignalTheme.text : SignalTheme.muted)
+                        .lineLimit(1)
+                }
+
+                if index < titles.count - 1 {
+                    Rectangle()
+                        .fill(index < current ? SignalTheme.lime.opacity(0.55) : SignalTheme.border)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 1)
+                }
+            }
         }
+        .padding(.horizontal, 11)
+        .frame(height: 40)
+        .background(SignalTheme.background.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
+        .overlay { RoundedRectangle(cornerRadius: 10).stroke(SignalTheme.border) }
+    }
+
+    private func compactSection<Content: View>(
+        _ title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title.uppercased()).sectionLabel()
+            VStack(spacing: 7) { content() }
+        }
+    }
+
+    private func setupPrompt(_ title: String, _ detail: String, icon: String, tint: Color) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 38, height: 38)
+                .background(tint.opacity(0.09), in: RoundedRectangle(cornerRadius: 10))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 11.5, weight: .semibold))
+                Text(detail)
+                    .font(.system(size: 9.25))
+                    .foregroundStyle(SignalTheme.muted)
+            }
+            Spacer()
+        }
+        .padding(12)
+        .background(SignalTheme.raised.opacity(0.72), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func selectedValueRow(_ label: String, _ value: String, icon: String, tint: Color) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 28, height: 28)
+                .background(tint.opacity(0.09), in: RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label.uppercased()).sectionLabel()
+                Text(value)
+                    .font(.system(size: 10.5, weight: .semibold))
+            }
+            Spacer()
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(SignalTheme.lime)
+        }
+        .padding(.horizontal, 11)
+        .frame(minHeight: 48)
+        .background(SignalTheme.raised.opacity(0.72), in: RoundedRectangle(cornerRadius: 9))
+    }
+
+    private var applicationConnectionSummary: some View {
+        HStack(spacing: 11) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(SignalTheme.lime)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Application logs connected")
+                    .font(.system(size: 11.5, weight: .semibold))
+                Text("Errors are arriving in Signalcase")
+                    .font(.system(size: 9.25))
+                    .foregroundStyle(SignalTheme.muted)
+            }
+            Spacer()
+            Button("View setup") {
+                withAnimation(.easeOut(duration: 0.16)) { showsApplicationSetup = true }
+            }
+            .buttonStyle(QuietButtonStyle())
+        }
+        .padding(13)
+        .background(SignalTheme.lime.opacity(0.045), in: RoundedRectangle(cornerRadius: 11))
+        .overlay { RoundedRectangle(cornerRadius: 11).stroke(SignalTheme.lime.opacity(0.16)) }
+    }
+
+    private var renderConnectionSummary: some View {
+        let services = model.configuration.renderSelectedServices ?? []
+        let fallbackCount = model.configuration.renderResourceIDs
+            .split(separator: ",")
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .count
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 11) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(SignalTheme.lime)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(model.configuration.renderWorkspaceName ?? "Render workspace")
+                        .font(.system(size: 11.5, weight: .semibold))
+                    Text("\(services.isEmpty ? fallbackCount : services.count) service\((services.isEmpty ? fallbackCount : services.count) == 1 ? "" : "s") connected")
+                        .font(.system(size: 9.25))
+                        .foregroundStyle(SignalTheme.muted)
+                }
+                Spacer()
+                Text("SYNCING")
+                    .font(.system(size: 7.5, weight: .bold, design: .monospaced))
+                    .foregroundStyle(SignalTheme.lime)
+            }
+
+            if !services.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(Array(services.enumerated()), id: \.element.id) { index, service in
+                        if index > 0 { Rectangle().fill(SignalTheme.border).frame(height: 1) }
+                        HStack(spacing: 10) {
+                            Image(systemName: "server.rack")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(SignalTheme.purple)
+                                .frame(width: 24, height: 24)
+                                .background(SignalTheme.purple.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(service.name)
+                                    .font(.system(size: 10.5, weight: .semibold))
+                                Text([service.repositoryName, service.branch].compactMap { $0 }.joined(separator: " · ").isEmpty
+                                    ? service.typeTitle
+                                    : [service.repositoryName, service.branch].compactMap { $0 }.joined(separator: " · "))
+                                    .font(.system(size: 8.5))
+                                    .foregroundStyle(SignalTheme.muted)
+                            }
+                            Spacer()
+                            Text(service.typeTitle.uppercased())
+                                .font(.system(size: 7, weight: .bold, design: .monospaced))
+                                .foregroundStyle(SignalTheme.muted)
+                        }
+                        .padding(.horizontal, 11)
+                        .frame(minHeight: 48)
+                    }
+                }
+                .background(SignalTheme.background.opacity(0.62), in: RoundedRectangle(cornerRadius: 9))
+                .overlay { RoundedRectangle(cornerRadius: 9).stroke(SignalTheme.border) }
+            }
+        }
+        .padding(13)
+        .background(SignalTheme.lime.opacity(0.045), in: RoundedRectangle(cornerRadius: 11))
+        .overlay { RoundedRectangle(cornerRadius: 11).stroke(SignalTheme.lime.opacity(0.16)) }
+    }
+
+    private func renderWorkspaceButton(_ workspace: RenderWorkspaceOption) -> some View {
+        let selected = model.selectedRenderWorkspaceID == workspace.id
+        return Button {
+            model.selectRenderWorkspace(workspace.id)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(selected ? SignalTheme.lime : SignalTheme.muted)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(workspace.name)
+                        .font(.system(size: 10.5, weight: .semibold))
+                    if let email = workspace.email, email != workspace.name {
+                        Text(email)
+                            .font(.system(size: 8.5))
+                            .foregroundStyle(SignalTheme.muted)
+                    }
+                }
+                Spacer()
+                let count = model.renderServices.filter { $0.ownerID == workspace.id }.count
+                Text("\(count) SERVICE\(count == 1 ? "" : "S")")
+                    .font(.system(size: 7, weight: .bold, design: .monospaced))
+                    .foregroundStyle(SignalTheme.muted)
+            }
+            .padding(.horizontal, 11)
+            .frame(minHeight: 47)
+            .background(selected ? SignalTheme.lime.opacity(0.06) : SignalTheme.background.opacity(0.62), in: RoundedRectangle(cornerRadius: 9))
+            .overlay { RoundedRectangle(cornerRadius: 9).stroke(selected ? SignalTheme.lime.opacity(0.22) : SignalTheme.border) }
+            .contentShape(RoundedRectangle(cornerRadius: 9))
+        }
+        .buttonStyle(HoverButtonStyle())
+        .focusEffectDisabled()
+    }
+
+    private func renderServiceButton(_ service: RenderServiceOption) -> some View {
+        let selected = model.selectedRenderServiceIDs.contains(service.id)
+        return Button {
+            model.toggleRenderService(service.id)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: selected ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(selected ? SignalTheme.lime : SignalTheme.muted)
+                Image(systemName: "server.rack")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(SignalTheme.purple)
+                    .frame(width: 25, height: 25)
+                    .background(SignalTheme.purple.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(service.name)
+                        .font(.system(size: 10.5, weight: .semibold))
+                    Text(service.repositoryName.map { repository in
+                        service.branch.map { "\(repository) · \($0)" } ?? repository
+                    } ?? "No linked repository")
+                        .font(.system(size: 8.5))
+                        .foregroundStyle(SignalTheme.muted)
+                }
+                Spacer()
+                Text(service.typeTitle.uppercased())
+                    .font(.system(size: 7, weight: .bold, design: .monospaced))
+                    .foregroundStyle(SignalTheme.muted)
+            }
+            .padding(.horizontal, 11)
+            .frame(minHeight: 51)
+            .background(selected ? SignalTheme.lime.opacity(0.055) : SignalTheme.background.opacity(0.62), in: RoundedRectangle(cornerRadius: 9))
+            .overlay { RoundedRectangle(cornerRadius: 9).stroke(selected ? SignalTheme.lime.opacity(0.20) : SignalTheme.border) }
+            .contentShape(RoundedRectangle(cornerRadius: 9))
+        }
+        .buttonStyle(HoverButtonStyle())
+        .focusEffectDisabled()
     }
 
     private func setupNumberField(_ label: String, value: Binding<Int>) -> some View {
@@ -1840,46 +2136,6 @@ private struct ConnectionsSettingsView: View {
             SecureField(placeholder, text: text).textFieldStyle(.plain)
                 .padding(.horizontal, 10).frame(height: 34)
                 .background(SignalTheme.raised, in: RoundedRectangle(cornerRadius: 8))
-        }
-    }
-
-    private func sourceExplanation(_ title: String, _ detail: String) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(title.uppercased()).sectionLabel()
-            Text(detail)
-                .font(.system(size: 10))
-                .foregroundStyle(SignalTheme.muted)
-                .lineSpacing(2)
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(SignalTheme.raised, in: RoundedRectangle(cornerRadius: 10))
-    }
-
-    private func setupStep<Content: View>(
-        _ number: Int,
-        _ title: String,
-        _ detail: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Text("\(number)")
-                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                .foregroundStyle(.black)
-                .frame(width: 22, height: 22)
-                .background(SignalTheme.lime, in: Circle())
-            VStack(alignment: .leading, spacing: 9) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title)
-                        .font(.system(size: 11.5, weight: .semibold))
-                    Text(detail)
-                        .font(.system(size: 9.25))
-                        .foregroundStyle(SignalTheme.muted)
-                        .lineSpacing(2)
-                }
-                content()
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -2058,6 +2314,9 @@ private struct ConnectionsSettingsView: View {
         if integration.source == .supabase, !model.supabaseProjects.isEmpty {
             return "CHOOSE A PROJECT"
         }
+        if integration.source == .render, model.isRenderDiscoveryActive {
+            return "CHOOSE SERVICES"
+        }
         return switch integration.state {
         case .connected: integration.eventCount > 0 ? "CONNECTED · \(integration.eventCount) EVENTS" : "CONNECTED"
         case .waitingForEvent: "WAITING FOR WEBHOOK"
@@ -2070,7 +2329,7 @@ private struct ConnectionsSettingsView: View {
     private func stateColor(_ state: IntegrationState) -> Color {
         switch state {
         case .connected: SignalTheme.lime
-        case .syncing, .waitingForEvent: SignalTheme.blue
+        case .syncing, .waitingForEvent, .available: SignalTheme.blue
         case .failed: SignalTheme.orange
         default: SignalTheme.muted
         }
@@ -2213,6 +2472,11 @@ private extension View {
             .frame(height: 32)
             .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 8))
             .contentShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    func settingsSurface() -> some View {
+        background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 12))
+            .overlay { RoundedRectangle(cornerRadius: 12).stroke(SignalTheme.border) }
     }
 }
 

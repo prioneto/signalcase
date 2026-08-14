@@ -192,7 +192,7 @@ struct OnboardingView: View {
             VStack(spacing: 0) {
                 sourceRow("Supabase", detail: "Approve read-only log access in your browser", icon: "cylinder.fill", color: SignalTheme.lime)
                 divider
-                sourceRow("Render", detail: "Add an API key and choose your services", icon: "server.rack", color: SignalTheme.purple)
+                sourceRow("Render", detail: "Paste one API key; Signalcase finds the services", icon: "server.rack", color: SignalTheme.purple)
                 divider
                 sourceRow("Application Logs", detail: "Copy a small error-reporting snippet into your app", icon: "terminal.fill", color: SignalTheme.blue)
             }

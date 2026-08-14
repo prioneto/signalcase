@@ -440,6 +440,34 @@ struct Integration: Identifiable, Codable, Hashable {
     var id: String { source.id }
 }
 
+struct RenderWorkspaceOption: Identifiable, Codable, Hashable {
+    let id: String
+    let name: String
+    let email: String?
+}
+
+struct RenderServiceOption: Identifiable, Codable, Hashable {
+    let id: String
+    let ownerID: String
+    let name: String
+    let type: String
+    let repositoryURL: String?
+    let branch: String?
+
+    var repositoryName: String? {
+        guard let repositoryURL, !repositoryURL.isEmpty else { return nil }
+        let withoutQuery = repositoryURL.split(separator: "?", maxSplits: 1).first.map(String.init) ?? repositoryURL
+        let normalized = withoutQuery.replacingOccurrences(of: "\\", with: "/")
+        let finalComponent = normalized.split(separator: "/").last.map(String.init)
+            ?? normalized.split(separator: ":").last.map(String.init)
+        return finalComponent?.replacingOccurrences(of: ".git", with: "")
+    }
+
+    var typeTitle: String {
+        type.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+}
+
 struct ProviderConfiguration: Codable, Hashable {
     var supabaseProjectRef = ""
     var sentryOrganization = ""
@@ -447,6 +475,8 @@ struct ProviderConfiguration: Codable, Hashable {
     var sentryBaseURL = "https://sentry.io"
     var renderOwnerID = ""
     var renderResourceIDs = ""
+    var renderWorkspaceName: String?
+    var renderSelectedServices: [RenderServiceOption]?
     var revenueCatPort = 9782
 
     static let empty = ProviderConfiguration()

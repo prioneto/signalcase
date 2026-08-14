@@ -31,6 +31,11 @@ final class AppModel: ObservableObject {
     @Published var supabaseProjects: [SupabaseProjectOption] = []
     @Published var selectedSupabaseProject: SupabaseProjectOption?
     @Published var isChangingSupabaseProject = false
+    @Published var renderWorkspaces: [RenderWorkspaceOption] = []
+    @Published var renderServices: [RenderServiceOption] = []
+    @Published var selectedRenderWorkspaceID: String?
+    @Published var selectedRenderServiceIDs: Set<String> = []
+    @Published var isRenderDiscoveryActive = false
     @Published var productionApplicationEndpoint = ""
     @Published var productionApplicationAuthorization = ""
     @Published var isCloudBusy = false
@@ -152,9 +157,12 @@ final class AppModel: ObservableObject {
     }
 
     private var configuredPullSources: Set<LogSource> {
-        var sources = Set([LogSource.render].filter { source in
-            CredentialStore.load(source: source, projectID: cloudProjectID) != nil
-        })
+        var sources = Set<LogSource>()
+        if !configuration.renderOwnerID.isEmpty,
+           !configuration.renderResourceIDs.isEmpty,
+           CredentialStore.load(source: .render, projectID: cloudProjectID) != nil {
+            sources.insert(.render)
+        }
         if cloudProjectID != nil, integrations.first(where: { $0.source == .supabase })?.state == .connected {
             sources.insert(.supabase)
         }
@@ -163,6 +171,11 @@ final class AppModel: ObservableObject {
             sources.insert(.application)
         }
         return sources
+    }
+
+    var renderServicesForSelectedWorkspace: [RenderServiceOption] {
+        guard let selectedRenderWorkspaceID else { return [] }
+        return renderServices.filter { $0.ownerID == selectedRenderWorkspaceID }
     }
 
     func count(for filter: CaseFilter) -> Int {
@@ -308,12 +321,167 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func discoverRender(token: String = "") async {
+        guard let cloudProjectID else {
+            showToast("Create or select a Signalcase project first")
+            return
+        }
+        let cleanToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        let credential = cleanToken.isEmpty
+            ? CredentialStore.load(source: .render, kind: .apiToken, projectID: cloudProjectID) ?? ""
+            : cleanToken
+
+        isCloudBusy = true
+        updateIntegration(.render, state: .syncing, error: nil)
+        defer { isCloudBusy = false }
+        do {
+            let discovery = try await RenderProvider.discover(token: credential)
+            try CredentialStore.save(credential, source: .render, kind: .apiToken, projectID: cloudProjectID)
+            renderWorkspaces = discovery.workspaces
+            renderServices = discovery.services
+            isRenderDiscoveryActive = true
+
+            let savedIDs = Set(configuration.renderResourceIDs
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) })
+            let savedServices = discovery.services.filter {
+                $0.ownerID == configuration.renderOwnerID && savedIDs.contains($0.id)
+            }
+            if !savedServices.isEmpty {
+                selectedRenderWorkspaceID = configuration.renderOwnerID
+                selectedRenderServiceIDs = Set(savedServices.map(\.id))
+                updateIntegration(.render, state: .connected, error: nil)
+                showToast("Render services refreshed")
+                return
+            }
+
+            let recommended = RenderProvider.recommendedServices(
+                from: discovery.services,
+                projectName: projectName
+            )
+            if let ownerID = recommended.first?.ownerID, !recommended.isEmpty {
+                selectedRenderWorkspaceID = ownerID
+                selectedRenderServiceIDs = Set(recommended.map(\.id))
+                try await applyRenderSelection(token: credential)
+                return
+            }
+
+            selectedRenderWorkspaceID = discovery.workspaces.count == 1
+                ? discovery.workspaces.first?.id
+                : nil
+            selectedRenderServiceIDs = []
+            updateIntegration(.render, state: .available, error: nil)
+            showToast(discovery.services.isEmpty
+                ? "No Render services with runtime logs were found"
+                : "Choose the services that belong to \(projectName)")
+        } catch {
+            updateIntegration(.render, state: .failed, error: SecretRedactor.redact(error.localizedDescription))
+            showToast("Could not discover Render services")
+        }
+    }
+
+    func selectRenderWorkspace(_ workspaceID: String) {
+        guard workspaceID != selectedRenderWorkspaceID else { return }
+        selectedRenderWorkspaceID = workspaceID
+        let services = renderServices.filter { $0.ownerID == workspaceID }
+        selectedRenderServiceIDs = services.count == 1 ? Set(services.map(\.id)) : []
+    }
+
+    func toggleRenderService(_ serviceID: String) {
+        guard renderServicesForSelectedWorkspace.contains(where: { $0.id == serviceID }) else { return }
+        if selectedRenderServiceIDs.contains(serviceID) {
+            selectedRenderServiceIDs.remove(serviceID)
+        } else {
+            selectedRenderServiceIDs.insert(serviceID)
+        }
+    }
+
+    func connectSelectedRenderServices() async {
+        guard let cloudProjectID,
+              let token = CredentialStore.load(source: .render, kind: .apiToken, projectID: cloudProjectID) else {
+            showToast("Paste a Render API key first")
+            return
+        }
+        isCloudBusy = true
+        updateIntegration(.render, state: .syncing, error: nil)
+        defer { isCloudBusy = false }
+        do {
+            try await applyRenderSelection(token: token)
+        } catch {
+            updateIntegration(.render, state: .failed, error: SecretRedactor.redact(error.localizedDescription))
+            showToast("Could not connect the selected Render services")
+        }
+    }
+
+    func cancelRenderDiscovery() {
+        renderWorkspaces = []
+        renderServices = []
+        selectedRenderWorkspaceID = nil
+        selectedRenderServiceIDs = []
+        isRenderDiscoveryActive = false
+        let state = Self.connectionState(
+            .render,
+            configuration: configuration,
+            events: rawEvents,
+            projectID: cloudProjectID
+        )
+        updateIntegration(.render, state: state, error: nil)
+    }
+
+    private func applyRenderSelection(token: String) async throws {
+        guard let ownerID = selectedRenderWorkspaceID else {
+            throw ProviderError.invalidConfiguration("Choose a Render workspace.")
+        }
+        let selectedServices = renderServices
+            .filter { $0.ownerID == ownerID && selectedRenderServiceIDs.contains($0.id) }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        guard !selectedServices.isEmpty else {
+            throw ProviderError.invalidConfiguration("Choose at least one Render service.")
+        }
+        guard let workspace = renderWorkspaces.first(where: { $0.id == ownerID }) else {
+            throw ProviderError.invalidConfiguration("The selected Render workspace is no longer available.")
+        }
+
+        let previousConfiguration = configuration
+        configuration.renderOwnerID = ownerID
+        configuration.renderResourceIDs = selectedServices.map(\.id).joined(separator: ",")
+        configuration.renderWorkspaceName = workspace.name
+        configuration.renderSelectedServices = selectedServices
+        persist()
+
+        do {
+            let batch = try await RenderProvider.fetchBatch(
+                configuration: configuration,
+                token: token,
+                start: Date().addingTimeInterval(-300),
+                end: Date()
+            )
+            updateIntegration(.render, state: .connected, count: batch.events.count + batch.unsupported.count, error: nil)
+            if !batch.events.isEmpty { ingest(batch.events) }
+            renderWorkspaces = []
+            renderServices = []
+            selectedRenderWorkspaceID = nil
+            selectedRenderServiceIDs = []
+            isRenderDiscoveryActive = false
+            persist()
+            showToast("Render connected · \(selectedServices.count) service\(selectedServices.count == 1 ? "" : "s")")
+        } catch {
+            configuration = previousConfiguration
+            persist()
+            throw error
+        }
+    }
+
     func saveConnection(
         source: LogSource,
         token: String,
         authorizationHeader: String = "",
         signingSecret: String = ""
     ) async {
+        if source == .render {
+            await discoverRender(token: token)
+            return
+        }
         do {
             guard let cloudProjectID else {
                 throw SignalcaseCloudError.server("Create or select a Signalcase project first.")
@@ -373,6 +541,17 @@ final class AppModel: ObservableObject {
             return
         }
         CredentialStore.remove(source: source, projectID: cloudProjectID)
+        if source == .render {
+            configuration.renderOwnerID = ""
+            configuration.renderResourceIDs = ""
+            configuration.renderWorkspaceName = nil
+            configuration.renderSelectedServices = nil
+            renderWorkspaces = []
+            renderServices = []
+            selectedRenderWorkspaceID = nil
+            selectedRenderServiceIDs = []
+            isRenderDiscoveryActive = false
+        }
         if source == .application {
             receiver?.stop()
             receiver = nil
@@ -947,6 +1126,11 @@ final class AppModel: ObservableObject {
         supabaseProjects = []
         selectedSupabaseProject = nil
         isChangingSupabaseProject = false
+        renderWorkspaces = []
+        renderServices = []
+        selectedRenderWorkspaceID = nil
+        selectedRenderServiceIDs = []
+        isRenderDiscoveryActive = false
         productionApplicationEndpoint = ""
         let savedApplicationAuthorization = CredentialStore.load(
             source: .application,

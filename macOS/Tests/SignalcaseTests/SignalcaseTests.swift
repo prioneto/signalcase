@@ -417,6 +417,60 @@ final class SignalcaseTests: XCTestCase {
         )
     }
 
+    func testRenderDiscoveryNormalizesWorkspaceAndServiceWrappers() {
+        let workspaces: [[String: Any]] = [
+            ["cursor": "one", "owner": ["id": "tea_fitref", "name": "Fitref", "email": "team@fitref.app"]]
+        ]
+        let services: [[String: Any]] = [
+            ["cursor": "two", "service": [
+                "id": "srv_api",
+                "ownerId": "tea_fitref",
+                "name": "fitref-api",
+                "type": "web_service",
+                "repo": "https://github.com/acme/fitref.git",
+                "branch": "main"
+            ]]
+        ]
+
+        XCTAssertEqual(
+            RenderProvider.normalizeWorkspaces(workspaces),
+            [RenderWorkspaceOption(id: "tea_fitref", name: "Fitref", email: "team@fitref.app")]
+        )
+        XCTAssertEqual(
+            RenderProvider.normalizeServices(services),
+            [RenderServiceOption(
+                id: "srv_api",
+                ownerID: "tea_fitref",
+                name: "fitref-api",
+                type: "web_service",
+                repositoryURL: "https://github.com/acme/fitref.git",
+                branch: "main"
+            )]
+        )
+    }
+
+    func testRenderRecommendationSelectsEveryServiceForMatchingRepository() {
+        let services = [
+            RenderServiceOption(id: "srv_web", ownerID: "tea_fitref", name: "fitref-web", type: "web_service", repositoryURL: "git@github.com:acme/fitref.git", branch: "main"),
+            RenderServiceOption(id: "srv_worker", ownerID: "tea_fitref", name: "fitref-worker", type: "background_worker", repositoryURL: "https://github.com/acme/fitref", branch: "main"),
+            RenderServiceOption(id: "srv_other", ownerID: "tea_fitref", name: "billing", type: "web_service", repositoryURL: "https://github.com/acme/billing", branch: "main")
+        ]
+
+        XCTAssertEqual(
+            Set(RenderProvider.recommendedServices(from: services, projectName: "Fitref").map(\.id)),
+            Set(["srv_web", "srv_worker"])
+        )
+    }
+
+    func testLegacyProviderConfigurationDecodesWithoutRenderLabels() throws {
+        let json = #"{"supabaseProjectRef":"","sentryOrganization":"","sentryProject":"","sentryBaseURL":"https://sentry.io","renderOwnerID":"tea_old","renderResourceIDs":"srv_old","revenueCatPort":9782}"#
+        let configuration = try JSONDecoder().decode(ProviderConfiguration.self, from: Data(json.utf8))
+
+        XCTAssertEqual(configuration.renderOwnerID, "tea_old")
+        XCTAssertNil(configuration.renderWorkspaceName)
+        XCTAssertNil(configuration.renderSelectedServices)
+    }
+
     func testRetryDelayHonorsProviderHeaders() throws {
         let url = try XCTUnwrap(URL(string: "https://example.com"))
         let response = try XCTUnwrap(HTTPURLResponse(
