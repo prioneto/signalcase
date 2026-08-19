@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { githubInstallationURL } from "../lib/github-app";
+import {
+  actionableGitHubError,
+  GitHubAPIError,
+  githubInstallationURL,
+} from "../lib/github-app";
 
 test("GitHub installation URL preserves the connection state", () => {
   const previous = process.env.GITHUB_APP_SLUG;
@@ -14,4 +18,13 @@ test("GitHub installation URL preserves the connection state", () => {
     if (previous === undefined) delete process.env.GITHUB_APP_SLUG;
     else process.env.GITHUB_APP_SLUG = previous;
   }
+});
+
+test("GitHub permission failures become actionable messages", () => {
+  const message = actionableGitHubError(
+    new GitHubAPIError("Resource not accessible by integration", 403, "actions=read"),
+    "load workflow runs",
+  );
+  assert.match(message, /actions=read/);
+  assert.match(message, /reconnect/i);
 });

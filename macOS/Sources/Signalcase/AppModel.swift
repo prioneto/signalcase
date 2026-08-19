@@ -921,6 +921,18 @@ final class AppModel: ObservableObject {
             updateIntegration(.github, state: .syncing, error: nil)
             try await finishGitHubConnection(repository, signalcaseProjectID: cloudProjectID)
         } catch {
+            // The repository selection endpoint performs more than one server-side
+            // write. If the connection itself succeeded, prefer the authoritative
+            // status response over leaving the UI in a false failed state.
+            await refreshGitHubConnection()
+            if selectedGitHubRepository != nil,
+               integrations.first(where: { $0.source == .github })?.state == .connected {
+                githubRepositories = []
+                isChangingGitHubRepository = false
+                persist()
+                showToast("GitHub connected")
+                return
+            }
             updateIntegration(
                 .github,
                 state: isChangingGitHubRepository ? .connected : .failed,

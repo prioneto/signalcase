@@ -1,7 +1,15 @@
 import { APIError, jsonError, requireProjectAccess } from "@/lib/api-auth";
-import { listGitHubRepositories } from "@/lib/github-app";
+import { actionableGitHubError, listGitHubRepositories } from "@/lib/github-app";
 
 type SelectBody = { projectId?: string; repositoryId?: number };
+
+async function accessibleRepositories(installationID: number) {
+  try {
+    return await listGitHubRepositories(installationID);
+  } catch (error) {
+    throw new APIError(actionableGitHubError(error, "load repositories"), 502);
+  }
+}
 
 async function authorizedInstallation(request: Request, projectId: string) {
   const { admin } = await requireProjectAccess(request, projectId);
@@ -35,7 +43,7 @@ export async function GET(request: Request) {
     const projectId = new URL(request.url).searchParams.get("projectId");
     if (!projectId) throw new APIError("Missing Signalcase project ID.");
     const { installationID } = await authorizedInstallation(request, projectId);
-    const repositories = await listGitHubRepositories(installationID);
+    const repositories = await accessibleRepositories(installationID);
     return Response.json({ repositories: repositories.map(repositoryOption) });
   } catch (error) {
     return jsonError(error);
@@ -49,7 +57,7 @@ export async function POST(request: Request) {
       throw new APIError("Choose a valid GitHub repository.");
     }
     const { admin, connection, installationID } = await authorizedInstallation(request, body.projectId);
-    const repositories = await listGitHubRepositories(installationID);
+    const repositories = await accessibleRepositories(installationID);
     const repository = repositories.find((item) => item.id === Number(body.repositoryId));
     if (!repository) throw new APIError("That repository is not available to this GitHub installation.", 403);
     const selected = repositoryOption(repository);
@@ -64,16 +72,21 @@ export async function POST(request: Request) {
       repository_private: selected.isPrivate,
     };
     const now = new Date().toISOString();
+    const { error: projectError } = await admin
+      .from("projects")
+      .update({ repository_url: selected.htmlUrl })
+      .eq("id", body.projectId);
+    if (projectError) {
+      console.warn("GitHub repository selected but project link could not be updated", {
+        projectId: body.projectId,
+        code: projectError.code,
+      });
+    }
     const { error: updateError } = await admin
       .from("provider_connections")
       .update({ state: "connected", metadata, connected_at: now, last_error: null })
       .eq("id", connection.id);
     if (updateError) throw updateError;
-    const { error: projectError } = await admin
-      .from("projects")
-      .update({ repository_url: selected.htmlUrl })
-      .eq("id", body.projectId);
-    if (projectError) throw projectError;
     return Response.json({ state: "connected", repository: selected });
   } catch (error) {
     return jsonError(error);

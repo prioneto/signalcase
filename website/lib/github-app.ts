@@ -28,6 +28,16 @@ export type GitHubRepository = {
   };
 };
 
+export class GitHubAPIError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly acceptedPermissions?: string,
+  ) {
+    super(message);
+  }
+}
+
 function requiredEnvironment(name: string) {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`Missing server environment variable: ${name}`);
@@ -81,9 +91,31 @@ async function githubRequest<T>(
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     const message = payload?.message ?? `GitHub returned ${response.status}.`;
-    throw new Error(String(message));
+    throw new GitHubAPIError(
+      String(message),
+      response.status,
+      response.headers.get("x-accepted-github-permissions") ?? undefined,
+    );
   }
   return payload as T;
+}
+
+export function actionableGitHubError(error: unknown, action: string) {
+  if (!(error instanceof GitHubAPIError)) {
+    return error instanceof Error ? error.message : `GitHub could not ${action}.`;
+  }
+  switch (error.status) {
+    case 401:
+      return "GitHub rejected the Signalcase App credentials. Check the App ID and private key in Vercel, then redeploy.";
+    case 403:
+      return error.acceptedPermissions
+        ? `GitHub denied access. Approve these GitHub App permissions and reconnect: ${error.acceptedPermissions}.`
+        : "GitHub denied repository access. Approve the GitHub App permissions, then reconnect.";
+    case 404:
+      return "This GitHub installation is no longer available. Disconnect GitHub and install it again.";
+    default:
+      return `GitHub could not ${action}: ${error.message}`;
+  }
 }
 
 export async function getGitHubInstallation(installationID: number) {
