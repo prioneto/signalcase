@@ -4,6 +4,7 @@ import { signInWithGitHub } from "./actions";
 type SignInPageProps = {
   searchParams: Promise<{
     error?: string;
+    next?: string;
   }>;
 };
 
@@ -30,6 +31,7 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
         {params.error ? <div className="auth-error">{params.error}</div> : null}
 
         <form action={signInWithGitHub}>
+          <input name="next" type="hidden" value={params.next ?? "/dashboard"} />
           <button className="auth-button" type="submit">
             <span className="github-mark">GH</span>
             Continue with GitHub

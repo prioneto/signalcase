@@ -45,7 +45,7 @@ const productPreviewCases: ProductCase[] = [
   {
     id: "SIG-103",
     title: "Nightly import exceeds the request timeout",
-    status: "TRIAGED",
+    status: "ACTIVE",
     severity: "HIGH",
     occurrences: 8,
     users: 8,
@@ -66,7 +66,7 @@ const productPreviewCases: ProductCase[] = [
   {
     id: "SIG-101",
     title: "Profile reads are denied after team invitations",
-    status: "FIXING",
+    status: "ACTIVE",
     severity: "HIGH",
     occurrences: 31,
     users: 14,
@@ -108,6 +108,7 @@ export default function Home() {
           <a href="#workflow">Workflow</a>
           <a href="#sources">Sources</a>
           <a href="#preview">Product</a>
+          <a href="#pricing">Pricing</a>
         </div>
         <a className="nav-cta" href="#preview">See the product <span>↘</span></a>
       </nav>
@@ -155,8 +156,8 @@ export default function Home() {
             <small>INBOX</small>
             <button className="side-nav active"><span>All cases</span><b>{cases.length}</b></button>
             <button className="side-nav"><span>New</span><b>{cases.filter((item) => item.status === "NEW").length}</b></button>
-            <button className="side-nav"><span>Triaged</span><b>{cases.filter((item) => item.status === "TRIAGED").length}</b></button>
-            <button className="side-nav"><span>Fixing</span><b>{cases.filter((item) => item.status === "FIXING").length}</b></button>
+            <button className="side-nav"><span>Active</span><b>{cases.filter((item) => item.status === "ACTIVE").length}</b></button>
+            <button className="side-nav"><span>Resolved</span><b>{cases.filter((item) => item.status === "RESOLVED").length}</b></button>
             <div className="side-bottom">
               <small>PROJECT</small>
               <div className="project-card"><span>▰</span><div><b>fitref</b><p>{cases.length} cases</p></div></div>
@@ -232,6 +233,25 @@ export default function Home() {
             <article key={source.code}><SourceBadge source={source.code as Source} /><div><h3>{source.name}</h3><p>{source.text}</p></div><span>↗</span></article>
           ))}
         </div>
+      </section>
+
+      <section className="pricing shell" id="pricing">
+        <div>
+          <span>03 / PRICING</span>
+          <h2>One small-team plan.</h2>
+          <p>Start with every production feature for 14 days. No card is required until you subscribe.</p>
+        </div>
+        <article>
+          <small>SIGNALCASE TEAM</small>
+          <strong>{process.env.NEXT_PUBLIC_TEAM_PRICE_LABEL ?? "Price announced at launch"}</strong>
+          <ul>
+            <li>Up to 5 teammates</li>
+            <li>3 shared projects</li>
+            <li>30 days of event history</li>
+            <li>Supabase, Render, GitHub and application logs</li>
+          </ul>
+          <a className="primary" href="/sign-in">Start 14-day trial <span>→</span></a>
+        </article>
       </section>
 
       <section className="closing shell">

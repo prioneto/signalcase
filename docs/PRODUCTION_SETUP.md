@@ -157,7 +157,38 @@ cd website
 npm run dev
 ```
 
-## 7. Build the production Mac app
+## 7. Configure Stripe subscriptions
+
+1. In Stripe, switch to **Test mode**.
+2. Open **Product catalog** and create `Signalcase Team`.
+3. Add one recurring monthly price matching the public price on the Signalcase website.
+4. Copy the `price_…` identifier.
+5. Open **Developers** → **Webhooks** and add:
+
+```text
+https://YOUR_DOMAIN/api/billing/webhook
+```
+
+6. Subscribe the endpoint to `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`, and `invoice.payment_failed`.
+7. Copy the webhook signing secret (`whsec_…`).
+8. Add the following Vercel Production variables and redeploy:
+
+| Variable | Value |
+| --- | --- |
+| `STRIPE_SECRET_KEY` | Stripe secret key (`sk_test_…` while testing) |
+| `STRIPE_WEBHOOK_SECRET` | Endpoint signing secret (`whsec_…`) |
+| `STRIPE_TEAM_PRICE_ID` | Recurring Team price (`price_…`) |
+| `NEXT_PUBLIC_TEAM_PRICE_LABEL` | Public display text, for example `$19 / month` |
+| `BILLING_ENFORCEMENT_ENABLED` | Keep `false` until the full test succeeds |
+
+9. In **Settings** → **Billing** → **Customer portal**, enable payment-method updates and subscription cancellation.
+10. Start Checkout from the native app or `/dashboard`, complete it with a Stripe test card, and confirm the workspace changes to `active`.
+11. Test a failed renewal and cancellation in Stripe. Confirm the webhook updates Signalcase.
+12. Only after those tests pass, use live Stripe keys, create the live webhook, and change `BILLING_ENFORCEMENT_ENABLED` to `true`.
+
+The server verifies Stripe's raw webhook body and signature and records event IDs for idempotency. Never place a Stripe secret or webhook signing secret in a `NEXT_PUBLIC_` variable or the Mac app.
+
+## 8. Build the production Mac app
 
 Save the public production configuration once:
 
@@ -176,7 +207,7 @@ The app is created at `macOS/.build/Signalcase.app`. The build script registers 
 
 The build checks `macOS/.env.build` first. If that file does not exist, it reads the three public values from `website/.env.local`, which keeps the existing localhost workflow working.
 
-## 8. Verify the real end-to-end flow
+## 9. Verify the real end-to-end flow
 
 1. Start or deploy the website server.
 2. Open the newly built Signalcase app.
@@ -214,4 +245,21 @@ To verify production Application Logs:
 5. Reopen Signalcase, click **Sync logs**, select Application Logs, and sync the matching time window.
 6. Confirm the application error appears and that its request ID can correlate with Render or Supabase evidence.
 
-If authorization succeeds but project selection or sync returns `403`, confirm the Management OAuth app has **Projects · Read** and **Analytics · Read**, then disconnect and reconnect so both scopes are granted. If the app reports missing cloud configuration, rebuild the app with the three public values in step 7.
+If authorization succeeds but project selection or sync returns `403`, confirm the Management OAuth app has **Projects · Read** and **Analytics · Read**, then disconnect and reconnect so both scopes are granted. If the app reports missing cloud configuration, rebuild the app with the three public values in step 8.
+
+## 10. Verify collaboration and data controls
+
+1. In the first Mac, open **Settings** → **Team**, invite a second email, and copy the invitation link.
+2. Open the link in a private browser, sign in with the invited email, and accept it.
+3. Sign in on a second Mac and select the shared project.
+4. Sync a real failure on the first Mac and confirm it appears on the second.
+5. Move the case to **Active** on one Mac and confirm the other receives the same status after switching projects or reopening the app.
+6. Resolve it, generate a newer matching event, and confirm it reopens.
+7. Delete and restore a case. Confirm the shared list follows the change.
+8. Change the member between Member and Owner, then remove the account and confirm access is revoked.
+9. Test project deletion and account deletion with disposable accounts.
+10. Confirm `/api/cron/cleanup` returns `401` without the Vercel cron bearer token.
+
+## 11. Distribute outside the Mac App Store
+
+The current build script creates the `.app`, but public distribution also requires an Apple Developer ID certificate, hardened-runtime signing, notarization, stapling, and a hosted `.dmg` or `.zip`. After hosting the notarized artifact, set `NEXT_PUBLIC_MAC_DOWNLOAD_URL` in Vercel and redeploy so the authenticated dashboard shows the download button.

@@ -82,8 +82,101 @@ struct ApplicationConnectionSetup: Codable {
     let connectedAt: String?
 }
 
+struct CloudTeamMember: Codable, Identifiable, Hashable {
+    let userId: UUID
+    let email: String
+    let role: String
+    let joinedAt: String
+    let isCurrentUser: Bool
+
+    var id: UUID { userId }
+}
+
+struct CloudInvitation: Codable, Identifiable, Hashable {
+    let id: UUID
+    let email: String
+    let role: String
+    let expiresAt: String
+    let createdAt: String?
+}
+
+struct CloudTeam: Codable {
+    let workspaceId: UUID
+    let currentRole: String
+    let members: [CloudTeamMember]
+    let invitations: [CloudInvitation]
+    let memberLimit: Int
+}
+
+struct CloudBillingState: Codable {
+    let configured: Bool
+    let enforcementEnabled: Bool
+    let access: Bool
+    let plan: String
+    let status: String
+    let provider: String
+    let trialEndsAt: String?
+    let currentPeriodEndsAt: String?
+    let cancelAtPeriodEnd: Bool
+    let memberLimit: Int
+    let projectLimit: Int
+    let eventRetentionDays: Int
+    let canManage: Bool
+}
+
 private struct CloudProjectEnvelope: Codable { let project: CloudProject }
 private struct CloudProjectsEnvelope: Codable { let projects: [CloudProject] }
+private struct CloudCasesEnvelope: Codable { let cases: [SignalCase] }
+private struct CloudCaseEnvelope: Codable { let `case`: SignalCase }
+private struct CloudCasesSubmission: Encodable {
+    let projectID: UUID
+    let cases: [SignalCase]
+
+    enum CodingKeys: String, CodingKey {
+        case projectID = "projectId"
+        case cases
+    }
+}
+private struct CloudCaseStatusSubmission: Encodable {
+    let projectID: UUID
+    let caseID: UUID
+    let status: CaseStatus
+
+    enum CodingKeys: String, CodingKey {
+        case projectID = "projectId"
+        case caseID = "caseId"
+        case status
+    }
+}
+private struct CloudTeamMutation: Encodable {
+    let projectID: UUID
+    let userID: UUID?
+    let role: String?
+
+    enum CodingKeys: String, CodingKey {
+        case projectID = "projectId"
+        case userID = "userId"
+        case role
+    }
+}
+private struct CloudInvitationSubmission: Encodable {
+    let projectID: UUID
+    let email: String?
+    let role: String?
+    let invitationID: UUID?
+
+    enum CodingKeys: String, CodingKey {
+        case projectID = "projectId"
+        case email, role
+        case invitationID = "invitationId"
+    }
+}
+private struct CloudInvitationCreated: Codable {
+    struct Invitation: Codable { let id: UUID; let email: String; let role: String; let expiresAt: String; let url: URL }
+    let invitation: Invitation
+}
+private struct BillingURLEnvelope: Codable { let url: URL }
+private struct DeleteEnvelope: Codable { let deleted: Bool?; let leftWorkspace: Bool?; let revoked: Bool? }
 private struct SupabaseProjectsEnvelope: Codable { let projects: [SupabaseProjectOption] }
 private struct SupabaseSelectionEnvelope: Codable {
     let state: String
@@ -197,12 +290,18 @@ final class SignalcaseCloud {
         try await client.auth.signOut(scope: .local)
     }
 
-    func bootstrapProject(name: String) async throws -> CloudProject {
+    func bootstrapProject(name: String, workspaceID: UUID? = nil) async throws -> CloudProject {
         let slug = Self.slug(from: name)
+        struct Submission: Encodable {
+            let name: String
+            let slug: String
+            let workspaceID: UUID?
+            enum CodingKeys: String, CodingKey { case name, slug; case workspaceID = "workspaceId" }
+        }
         let envelope: CloudProjectEnvelope = try await request(
             path: "/api/native/project",
             method: "POST",
-            body: ["name": name, "slug": slug]
+            body: Submission(name: name, slug: slug, workspaceID: workspaceID)
         )
         return envelope.project
     }
@@ -214,6 +313,139 @@ final class SignalcaseCloud {
             body: Optional<[String: String]>.none
         )
         return envelope.projects
+    }
+
+    func sharedCases(projectID: UUID) async throws -> [SignalCase] {
+        let envelope: CloudCasesEnvelope = try await request(
+            path: "/api/cases?projectId=\(projectID.uuidString)",
+            method: "GET",
+            body: Optional<[String: String]>.none
+        )
+        return envelope.cases
+    }
+
+    func syncSharedCases(projectID: UUID, cases: [SignalCase]) async throws -> [SignalCase] {
+        let envelope: CloudCasesEnvelope = try await request(
+            path: "/api/cases",
+            method: "POST",
+            body: CloudCasesSubmission(projectID: projectID, cases: cases)
+        )
+        return envelope.cases
+    }
+
+    func updateCaseStatus(projectID: UUID, caseID: UUID, status: CaseStatus) async throws -> SignalCase {
+        let envelope: CloudCaseEnvelope = try await request(
+            path: "/api/cases/status",
+            method: "PATCH",
+            body: CloudCaseStatusSubmission(projectID: projectID, caseID: caseID, status: status)
+        )
+        return envelope.case
+    }
+
+    func deleteCase(projectID: UUID, caseID: UUID) async throws {
+        let _: DeleteEnvelope = try await request(
+            path: "/api/cases",
+            method: "DELETE",
+            body: ["projectId": projectID.uuidString, "caseId": caseID.uuidString]
+        )
+    }
+
+    func restoreCase(projectID: UUID, caseID: UUID) async throws {
+        let _: DeleteEnvelope = try await request(
+            path: "/api/cases",
+            method: "PUT",
+            body: ["projectId": projectID.uuidString, "caseId": caseID.uuidString]
+        )
+    }
+
+    func team(projectID: UUID) async throws -> CloudTeam {
+        try await request(
+            path: "/api/team?projectId=\(projectID.uuidString)",
+            method: "GET",
+            body: Optional<[String: String]>.none
+        )
+    }
+
+    func invite(projectID: UUID, email: String, role: String) async throws -> URL {
+        let result: CloudInvitationCreated = try await request(
+            path: "/api/team/invitations",
+            method: "POST",
+            body: CloudInvitationSubmission(projectID: projectID, email: email, role: role, invitationID: nil)
+        )
+        return result.invitation.url
+    }
+
+    func revokeInvitation(projectID: UUID, invitationID: UUID) async throws {
+        let _: DeleteEnvelope = try await request(
+            path: "/api/team/invitations",
+            method: "DELETE",
+            body: CloudInvitationSubmission(projectID: projectID, email: nil, role: nil, invitationID: invitationID)
+        )
+    }
+
+    func updateMember(projectID: UUID, userID: UUID, role: String) async throws -> CloudTeam {
+        try await request(
+            path: "/api/team",
+            method: "PATCH",
+            body: CloudTeamMutation(projectID: projectID, userID: userID, role: role)
+        )
+    }
+
+    func removeMember(projectID: UUID, userID: UUID) async throws -> CloudTeam? {
+        let data = try await requestData(
+            path: "/api/team",
+            method: "DELETE",
+            body: CloudTeamMutation(projectID: projectID, userID: userID, role: nil)
+        )
+        return try? makeDecoder().decode(CloudTeam.self, from: data)
+    }
+
+    func billing(projectID: UUID) async throws -> CloudBillingState {
+        try await request(
+            path: "/api/billing/status?projectId=\(projectID.uuidString)",
+            method: "GET",
+            body: Optional<[String: String]>.none
+        )
+    }
+
+    func checkoutURL(projectID: UUID) async throws -> URL {
+        let envelope: BillingURLEnvelope = try await request(
+            path: "/api/billing/checkout",
+            method: "POST",
+            body: ["projectId": projectID.uuidString]
+        )
+        return envelope.url
+    }
+
+    func billingPortalURL(projectID: UUID) async throws -> URL {
+        let envelope: BillingURLEnvelope = try await request(
+            path: "/api/billing/portal",
+            method: "POST",
+            body: ["projectId": projectID.uuidString]
+        )
+        return envelope.url
+    }
+
+    func deleteProject(projectID: UUID) async throws {
+        let _: DeleteEnvelope = try await request(
+            path: "/api/native/project",
+            method: "DELETE",
+            body: ["projectId": projectID.uuidString]
+        )
+    }
+
+    func deleteAccount() async throws {
+        let _: DeleteEnvelope = try await request(
+            path: "/api/account",
+            method: "DELETE",
+            body: ["confirmation": "DELETE"]
+        )
+    }
+
+    func openExternalURL(_ url: URL) throws {
+        guard NSWorkspace.shared.open(url) else {
+            throw SignalcaseCloudError.server("Could not open the default browser.")
+        }
     }
 
     func connectionStatus(projectID: UUID) async throws -> CloudConnectionStatus {
@@ -463,8 +695,7 @@ final class SignalcaseCloud {
         body: Body?
     ) async throws -> Response {
         let data = try await requestData(path: path, method: method, body: body)
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let decoder = makeDecoder()
         do { return try decoder.decode(Response.self, from: data) }
         catch { throw SignalcaseCloudError.invalidResponse }
     }
@@ -490,7 +721,9 @@ final class SignalcaseCloud {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try JSONEncoder().encode(body)
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            request.httpBody = try encoder.encode(body)
         }
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw SignalcaseCloudError.invalidResponse }
@@ -500,6 +733,13 @@ final class SignalcaseCloud {
             throw SignalcaseCloudError.server(message)
         }
         return data
+    }
+
+    private func makeDecoder() -> JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
     }
 
     private func openInDefaultBrowser(

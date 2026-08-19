@@ -1,6 +1,7 @@
-import { APIError, jsonError, requireProjectAccess } from "@/lib/api-auth";
+import { APIError, jsonError } from "@/lib/api-auth";
 import { encryptSecret } from "@/lib/credential-crypto";
 import { githubCallbackURL, githubInstallationURL } from "@/lib/github-app";
+import { requireProjectContext } from "@/lib/project-context";
 import { randomURLSafe, sha256 } from "@/lib/supabase-management";
 
 type Body = { projectId?: string };
@@ -9,7 +10,10 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as Body;
     if (!body.projectId) throw new APIError("Choose a Signalcase project first.");
-    const { admin } = await requireProjectAccess(request, body.projectId);
+    const { admin } = await requireProjectContext(request, body.projectId, {
+      bucket: "github-connect",
+      maximum: 10,
+    });
     const state = randomURLSafe();
 
     const { error: connectionError } = await admin
@@ -37,6 +41,6 @@ export async function POST(request: Request) {
 
     return Response.json({ authorizationUrl: githubInstallationURL(state) });
   } catch (error) {
-    return jsonError(error);
+    return jsonError(error, request);
   }
 }

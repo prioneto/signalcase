@@ -1,5 +1,6 @@
-import { APIError, jsonError, requireProjectAccess } from "@/lib/api-auth";
+import { APIError, jsonError } from "@/lib/api-auth";
 import { encryptSecret } from "@/lib/credential-crypto";
+import { requireProjectContext } from "@/lib/project-context";
 import {
   managementAuthorizationURL,
   managementCallbackURL,
@@ -13,7 +14,10 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as Body;
     if (!body.projectId) throw new APIError("Link a project before connecting Supabase.");
-    const { admin } = await requireProjectAccess(request, body.projectId);
+    const { admin } = await requireProjectContext(request, body.projectId, {
+      bucket: "supabase-connect",
+      maximum: 10,
+    });
     const state = randomURLSafe();
     const verifier = randomURLSafe(48);
     const redirectURI = managementCallbackURL();
@@ -51,6 +55,6 @@ export async function POST(request: Request) {
       }),
     });
   } catch (error) {
-    return jsonError(error);
+    return jsonError(error, request);
   }
 }

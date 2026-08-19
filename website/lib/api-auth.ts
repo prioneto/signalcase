@@ -1,4 +1,5 @@
 import { createAdminClient, createUserClient } from "@/lib/supabase/admin";
+import { randomUUID } from "node:crypto";
 
 export class APIError extends Error {
   constructor(
@@ -43,11 +44,31 @@ export async function requireProjectAccess(request: Request, projectId: string) 
   return { ...auth, project: data };
 }
 
-export function jsonError(error: unknown) {
+export function jsonError(error: unknown, request?: Request) {
   const status = error instanceof APIError ? error.status : 500;
   const message = error instanceof Error ? error.message : "Unexpected server error.";
+  const requestID = request?.headers.get("x-vercel-id") ?? randomUUID();
+  if (status >= 500) {
+    console.error("Signalcase API request failed", {
+      requestID,
+      method: request?.method,
+      path: request ? new URL(request.url).pathname : undefined,
+      message,
+    });
+  }
   return Response.json(
-    { error: status === 500 ? "The server could not complete this request." : message },
-    { status, headers: { "Cache-Control": "no-store" } },
+    {
+      error: status >= 500
+        ? `The server could not complete this request. Reference: ${requestID}`
+        : message,
+      requestId: requestID,
+    },
+    {
+      status,
+      headers: {
+        "Cache-Control": "no-store",
+        "X-Signalcase-Request-ID": requestID,
+      },
+    },
   );
 }

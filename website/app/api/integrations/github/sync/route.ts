@@ -1,5 +1,6 @@
-import { APIError, jsonError, requireProjectAccess } from "@/lib/api-auth";
+import { APIError, jsonError } from "@/lib/api-auth";
 import { githubRepositoryEvidence } from "@/lib/github-app";
+import { requireProjectContext } from "@/lib/project-context";
 
 type Body = { projectId?: string; start?: string; end?: string };
 
@@ -16,7 +17,10 @@ export async function POST(request: Request) {
       throw new APIError("A single sync can cover at most 24 hours.");
     }
 
-    const { admin } = await requireProjectAccess(request, body.projectId);
+    const { admin } = await requireProjectContext(request, body.projectId, {
+      bucket: "github-sync",
+      maximum: 20,
+    });
     const { data: connection, error } = await admin
       .from("provider_connections")
       .select("id, state, metadata")
@@ -49,6 +53,6 @@ export async function POST(request: Request) {
       throw new APIError(message, 502);
     }
   } catch (error) {
-    return jsonError(error);
+    return jsonError(error, request);
   }
 }

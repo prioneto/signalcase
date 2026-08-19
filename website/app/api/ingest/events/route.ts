@@ -4,6 +4,7 @@ import {
   hashApplicationSecret,
   maximumApplicationBodyBytes,
 } from "@/lib/application-events";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
 function error(message: string, status: number) {
   return Response.json({ error: message }, {
@@ -49,6 +50,17 @@ export async function POST(request: Request) {
     .maybeSingle();
   if (keyError) return error("The receiver could not verify this request.", 500);
   if (!key) return error("Invalid Application Logs authorization.", 401);
+
+  try {
+    await enforceRateLimit(admin, {
+      bucket: "application-ingest",
+      subject: key.project_id,
+      maximum: 600,
+      windowSeconds: 60,
+    });
+  } catch {
+    return error("Too many events. Retry after one minute.", 429);
+  }
 
   let rows;
   try {

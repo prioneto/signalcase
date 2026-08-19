@@ -1,4 +1,5 @@
-import { APIError, jsonError, requireProjectAccess } from "@/lib/api-auth";
+import { APIError, jsonError } from "@/lib/api-auth";
+import { requireProjectContext } from "@/lib/project-context";
 
 type Body = { projectId?: string; start?: string; end?: string };
 
@@ -14,7 +15,10 @@ export async function POST(request: Request) {
     if (end.getTime() - start.getTime() > 24 * 60 * 60 * 1_000) {
       throw new APIError("A single sync can cover at most 24 hours.");
     }
-    const { userClient } = await requireProjectAccess(request, body.projectId);
+    const { userClient } = await requireProjectContext(request, body.projectId, {
+      bucket: "application-sync",
+      maximum: 30,
+    });
     const { data, error } = await userClient
       .from("raw_events")
       .select("provider_event_id, level, event_type, title, summary, request_id, actor_external_id, release, route, payload, occurred_at")
@@ -41,6 +45,6 @@ export async function POST(request: Request) {
     }));
     return Response.json({ payload: { events } });
   } catch (error) {
-    return jsonError(error);
+    return jsonError(error, request);
   }
 }

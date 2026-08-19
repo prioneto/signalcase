@@ -922,6 +922,10 @@ private struct SettingsSheet: View {
                 switch model.settingsSection {
                 case .general:
                     GeneralSettingsView()
+                case .team:
+                    TeamSettingsView()
+                case .billing:
+                    BillingSettingsView()
                 case .connections:
                     ConnectionsSettingsView()
                 case .activity:
@@ -1152,6 +1156,8 @@ private struct GeneralSettingsView: View {
     @State private var newProjectName = ""
     @State private var isCreatingProject = false
     @State private var isProjectPickerPresented = false
+    @State private var confirmsProjectDeletion = false
+    @State private var confirmsAccountDeletion = false
     @FocusState private var isProjectNameFocused: Bool
 
     var body: some View {
@@ -1255,12 +1261,53 @@ private struct GeneralSettingsView: View {
                     }
                     .settingsSurface()
                 }
+
+                if model.isSignedIn {
+                    settingsSection("DANGER ZONE") {
+                        VStack(spacing: 0) {
+                            if model.cloudProjectID != nil {
+                                settingsRow(
+                                    icon: "trash",
+                                    tint: SignalTheme.orange,
+                                    title: "Delete current project",
+                                    detail: "Permanently removes its cases, connections, and team access",
+                                    actionTitle: "Delete"
+                                ) { confirmsProjectDeletion = true }
+                                rowDivider
+                            }
+                            settingsRow(
+                                icon: "person.crop.circle.badge.minus",
+                                tint: SignalTheme.orange,
+                                title: "Delete account",
+                                detail: "Permanently removes your account and workspaces you solely own",
+                                actionTitle: "Delete"
+                            ) { confirmsAccountDeletion = true }
+                        }
+                        .settingsSurface()
+                    }
+                }
             }
             .padding(26)
             .frame(maxWidth: 680, alignment: .leading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(SignalTheme.background)
+        .alert("Delete this project?", isPresented: $confirmsProjectDeletion) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete project", role: .destructive) {
+                Task { _ = await model.deleteCurrentProject() }
+            }
+        } message: {
+            Text("This permanently deletes the project, shared cases, and provider connections for every teammate.")
+        }
+        .alert("Delete your Signalcase account?", isPresented: $confirmsAccountDeletion) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete account", role: .destructive) {
+                Task { _ = await model.deleteAccount() }
+            }
+        } message: {
+            Text("This cannot be undone. Transfer ownership first if a workspace still has other members.")
+        }
     }
 
     private func settingsSection<Content: View>(
@@ -1505,6 +1552,229 @@ private struct GeneralSettingsView: View {
 
     private var rowDivider: some View {
         Rectangle().fill(SignalTheme.border).frame(height: 1).padding(.leading, 55)
+    }
+}
+
+private struct TeamSettingsView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var email = ""
+    @State private var inviteAsOwner = false
+
+    private var isOwner: Bool { model.cloudTeam?.currentRole == "owner" }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("TEAM").sectionLabel()
+                    Text("People")
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                    Text("Everyone in this workspace sees the same cases and statuses.")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(SignalTheme.muted)
+                }
+
+                if model.cloudProjectID == nil {
+                    emptyState("Choose a project to manage its team.")
+                } else if let team = model.cloudTeam {
+                    if isOwner {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("INVITE").sectionLabel()
+                            HStack(spacing: 8) {
+                                TextField("teammate@company.com", text: $email)
+                                    .textFieldStyle(.plain)
+                                    .font(.system(size: 11))
+                                    .padding(.horizontal, 12)
+                                    .frame(height: 38)
+                                    .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 10))
+                                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(SignalTheme.border))
+                                Button(inviteAsOwner ? "Owner" : "Member") { inviteAsOwner.toggle() }
+                                    .buttonStyle(QuietButtonStyle())
+                                Button(model.isCloudBusy ? "Inviting…" : "Invite") {
+                                    Task {
+                                        if await model.inviteTeamMember(
+                                            email: email,
+                                            role: inviteAsOwner ? "owner" : "member"
+                                        ) { email = "" }
+                                    }
+                                }
+                                .buttonStyle(PrimaryButtonStyle())
+                                .disabled(email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isCloudBusy)
+                            }
+                            Text("Creates a seven-day invitation and copies its link.")
+                                .font(.system(size: 9.5))
+                                .foregroundStyle(SignalTheme.muted)
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 9) {
+                        HStack {
+                            Text("MEMBERS").sectionLabel()
+                            Spacer()
+                            Text("\(team.members.count) of \(team.memberLimit)")
+                                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(SignalTheme.muted)
+                        }
+                        VStack(spacing: 0) {
+                            ForEach(Array(team.members.enumerated()), id: \.element.id) { index, member in
+                                memberRow(member)
+                                if index < team.members.count - 1 { divider }
+                            }
+                        }
+                        .settingsSurface()
+                    }
+
+                    if !team.invitations.isEmpty {
+                        VStack(alignment: .leading, spacing: 9) {
+                            Text("PENDING").sectionLabel()
+                            VStack(spacing: 0) {
+                                ForEach(Array(team.invitations.enumerated()), id: \.element.id) { index, invite in
+                                    HStack(spacing: 12) {
+                                        Image(systemName: "envelope")
+                                            .foregroundStyle(SignalTheme.yellow)
+                                            .frame(width: 28)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(invite.email).font(.system(size: 11, weight: .semibold))
+                                            Text("Invited as \(invite.role)")
+                                                .font(.system(size: 9.5)).foregroundStyle(SignalTheme.muted)
+                                        }
+                                        Spacer()
+                                        if isOwner {
+                                            Button("Revoke") { Task { await model.revokeInvitation(invite) } }
+                                                .buttonStyle(QuietButtonStyle())
+                                        }
+                                    }
+                                    .padding(.horizontal, 14)
+                                    .frame(minHeight: 58)
+                                    if index < team.invitations.count - 1 { divider }
+                                }
+                            }
+                            .settingsSurface()
+                        }
+                    }
+                } else {
+                    ProgressView().controlSize(.small)
+                }
+            }
+            .padding(26)
+            .frame(maxWidth: 680, alignment: .leading)
+        }
+        .background(SignalTheme.background)
+        .task { await model.refreshTeamAndBilling() }
+    }
+
+    private func memberRow(_ member: CloudTeamMember) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: member.role == "owner" ? "person.crop.circle.badge.checkmark" : "person.crop.circle")
+                .font(.system(size: 14))
+                .foregroundStyle(member.isCurrentUser ? SignalTheme.lime : SignalTheme.blue)
+                .frame(width: 30)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(member.email)
+                    .font(.system(size: 11, weight: .semibold))
+                Text(member.isCurrentUser ? "You · \(member.role.capitalized)" : member.role.capitalized)
+                    .font(.system(size: 9.5)).foregroundStyle(SignalTheme.muted)
+            }
+            Spacer()
+            if isOwner, !member.isCurrentUser {
+                Button(member.role == "owner" ? "Make member" : "Make owner") {
+                    Task { await model.updateMember(member, role: member.role == "owner" ? "member" : "owner") }
+                }
+                .buttonStyle(QuietButtonStyle())
+                Button("Remove") { Task { await model.removeMember(member) } }
+                    .buttonStyle(QuietButtonStyle())
+            }
+        }
+        .padding(.horizontal, 14)
+        .frame(minHeight: 62)
+    }
+
+    private func emptyState(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 11))
+            .foregroundStyle(SignalTheme.muted)
+            .frame(maxWidth: .infinity, minHeight: 120)
+            .background(SignalTheme.surface, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var divider: some View { Rectangle().fill(SignalTheme.border).frame(height: 1).padding(.leading, 56) }
+}
+
+private struct BillingSettingsView: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("BILLING").sectionLabel()
+                    Text("Signalcase Team")
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                    Text("One plan for your shared workspace.")
+                        .font(.system(size: 10.5)).foregroundStyle(SignalTheme.muted)
+                }
+
+                if let billing = model.cloudBilling {
+                    VStack(alignment: .leading, spacing: 18) {
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(billing.status.replacingOccurrences(of: "_", with: " ").capitalized)
+                                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                                Text(billing.access ? "Your workspace is active" : "Subscribe to keep syncing new evidence")
+                                    .font(.system(size: 10.5)).foregroundStyle(SignalTheme.muted)
+                            }
+                            Spacer()
+                            Circle().fill(billing.access ? SignalTheme.lime : SignalTheme.orange).frame(width: 9, height: 9)
+                        }
+
+                        HStack(spacing: 0) {
+                            limit("Members", "\(billing.memberLimit)")
+                            limit("Projects", "\(billing.projectLimit)")
+                            limit("Event history", "\(billing.eventRetentionDays) days")
+                        }
+
+                        if billing.canManage {
+                            HStack {
+                                if billing.provider == "stripe" {
+                                    Button("Manage subscription") { Task { await model.openBillingPortal() } }
+                                        .buttonStyle(PrimaryButtonStyle())
+                                } else {
+                                    Button(billing.configured ? "Subscribe" : "Payments coming soon") {
+                                        Task { await model.openCheckout() }
+                                    }
+                                    .buttonStyle(PrimaryButtonStyle())
+                                    .disabled(!billing.configured)
+                                }
+                                Button("Refresh") { Task { await model.refreshTeamAndBilling() } }
+                                    .buttonStyle(QuietButtonStyle())
+                            }
+                        } else {
+                            Text("A workspace owner manages the subscription.")
+                                .font(.system(size: 10)).foregroundStyle(SignalTheme.muted)
+                        }
+                    }
+                    .padding(20)
+                    .settingsSurface()
+                } else if model.cloudProjectID == nil {
+                    Text("Choose a project to see its workspace plan.")
+                        .font(.system(size: 11)).foregroundStyle(SignalTheme.muted)
+                } else {
+                    ProgressView().controlSize(.small)
+                }
+            }
+            .padding(26)
+            .frame(maxWidth: 680, alignment: .leading)
+        }
+        .background(SignalTheme.background)
+        .task { await model.refreshTeamAndBilling() }
+    }
+
+    private func limit(_ title: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(value).font(.system(size: 12, weight: .semibold))
+            Text(title).font(.system(size: 9)).foregroundStyle(SignalTheme.muted)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

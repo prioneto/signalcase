@@ -1,5 +1,6 @@
-import { APIError, jsonError, requireProjectAccess } from "@/lib/api-auth";
+import { APIError, jsonError } from "@/lib/api-auth";
 import { decryptSecret, encryptSecret } from "@/lib/credential-crypto";
+import { requireProjectContext } from "@/lib/project-context";
 import { exchangeManagementToken, managementAPI } from "@/lib/supabase-management";
 
 type Body = { projectId?: string; start?: string; end?: string };
@@ -17,7 +18,10 @@ export async function POST(request: Request) {
       throw new APIError("A single sync can cover at most 24 hours.");
     }
 
-    const { admin } = await requireProjectAccess(request, body.projectId);
+    const { admin } = await requireProjectContext(request, body.projectId, {
+      bucket: "supabase-sync",
+      maximum: 12,
+    });
     const { data: connection, error: connectionError } = await admin
       .from("provider_connections")
       .select("id, state, metadata")
@@ -111,6 +115,6 @@ export async function POST(request: Request) {
     }).eq("id", connection.id);
     return Response.json({ payload: { result: rows } });
   } catch (error) {
-    return jsonError(error);
+    return jsonError(error, request);
   }
 }

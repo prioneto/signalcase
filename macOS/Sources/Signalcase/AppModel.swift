@@ -41,11 +41,15 @@ final class AppModel: ObservableObject {
     @Published var isRenderDiscoveryActive = false
     @Published var productionApplicationEndpoint = ""
     @Published var productionApplicationAuthorization = ""
+    @Published var cloudTeam: CloudTeam?
+    @Published var cloudBilling: CloudBillingState?
     @Published var isCloudBusy = false
     @Published var isRestoringCloudSession = true
 
     private var receiver: LocalEventReceiver?
     private var automaticSyncTask: Task<Void, Never>?
+    private var sharedCaseSyncTask: Task<Void, Never>?
+    private var collaborationRefreshTask: Task<Void, Never>?
     private var processedWebhookIDs: [String]
     private let cloud = SignalcaseCloud()
 
@@ -256,8 +260,30 @@ final class AppModel: ObservableObject {
               let index = cases.firstIndex(where: { $0.id == selectedID }) else { return }
         let current = cases[index].status
         let destination = current.actionDestination
+        let original = cases[index]
         cases[index].status = destination
         persist()
+        if let cloudProjectID {
+            Task {
+                do {
+                    let updated = try await cloud.updateCaseStatus(
+                        projectID: cloudProjectID,
+                        caseID: selectedID,
+                        status: destination
+                    )
+                    if let currentIndex = cases.firstIndex(where: { $0.id == updated.id }) {
+                        cases[currentIndex] = updated
+                        persist()
+                    }
+                } catch {
+                    if let currentIndex = cases.firstIndex(where: { $0.id == original.id }) {
+                        cases[currentIndex] = original
+                    }
+                    persist()
+                    showToast(SecretRedactor.redact(error.localizedDescription))
+                }
+            }
+        }
         switch destination {
         case .new:
             showToast("Moved to New")
@@ -590,6 +616,12 @@ final class AppModel: ObservableObject {
         rawEvents.removeAll { removedKeys.contains(Self.eventStoreKey($0)) }
         self.selectedCaseID = nil
         persist()
+        if let cloudProjectID {
+            Task {
+                do { try await cloud.deleteCase(projectID: cloudProjectID, caseID: item.id) }
+                catch { showToast(SecretRedactor.redact(error.localizedDescription)) }
+            }
+        }
         showToast("Deleted this case only · A new occurrence can return")
     }
 
@@ -608,6 +640,13 @@ final class AppModel: ObservableObject {
         cases.removeAll { $0.fingerprint == item.fingerprint }
         selectedCaseID = nil
         persist()
+        if let cloudProjectID {
+            Task {
+                for removedCase in removed {
+                    try? await cloud.deleteCase(projectID: cloudProjectID, caseID: removedCase.id)
+                }
+            }
+        }
         showToast("Muted this error type · Future matches will be hidden")
     }
 
@@ -618,6 +657,12 @@ final class AppModel: ObservableObject {
         if !cases.contains(where: { $0.id == item.id }) { cases.append(item) }
         mergeRawEvents(item.events)
         persist()
+        if let cloudProjectID {
+            Task {
+                do { try await cloud.restoreCase(projectID: cloudProjectID, caseID: item.id) }
+                catch { showToast(SecretRedactor.redact(error.localizedDescription)) }
+            }
+        }
         showToast("Restored \(item.reference)")
     }
 
@@ -631,6 +676,13 @@ final class AppModel: ObservableObject {
         }
         redetectCases()
         persist()
+        if let cloudProjectID {
+            Task {
+                for restoredCase in restoring {
+                    try? await cloud.restoreCase(projectID: cloudProjectID, caseID: restoredCase.id)
+                }
+            }
+        }
         showToast("Error type unmuted")
     }
 
@@ -665,7 +717,8 @@ final class AppModel: ObservableObject {
                 cloudEmail = identity.email
                 isCloudAuthenticated = true
             }
-            let project = try await cloud.bootstrapProject(name: name)
+            let workspaceID = cloudProjects.first(where: { $0.id == cloudProjectID })?.workspaceId
+            let project = try await cloud.bootstrapProject(name: name, workspaceID: workspaceID)
             if !cloudProjects.contains(where: { $0.id == project.id }) {
                 cloudProjects.append(project)
                 cloudProjects.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -704,7 +757,10 @@ final class AppModel: ObservableObject {
             await refreshSupabaseConnection()
             await refreshGitHubConnection()
             await refreshApplicationConnection()
+            await refreshSharedCases()
+            await refreshTeamAndBilling()
         }
+        restartCollaborationRefresh()
         showToast("Switched to \(project.name)")
     }
 
@@ -720,6 +776,9 @@ final class AppModel: ObservableObject {
             await refreshSupabaseConnection()
             await refreshGitHubConnection()
             await refreshApplicationConnection()
+            await refreshSharedCases()
+            await refreshTeamAndBilling()
+            restartCollaborationRefresh()
             showToast("Signed in to Signalcase")
         } catch {
             showToast(SecretRedactor.redact(error.localizedDescription))
@@ -735,6 +794,10 @@ final class AppModel: ObservableObject {
         cloudEmail = nil
         isCloudAuthenticated = false
         cloudProjects = []
+        cloudTeam = nil
+        cloudBilling = nil
+        collaborationRefreshTask?.cancel()
+        collaborationRefreshTask = nil
         supabaseProjects = []
         selectedSupabaseProject = nil
         isChangingSupabaseProject = false
@@ -747,6 +810,109 @@ final class AppModel: ObservableObject {
         updateIntegration(.supabase, state: .disconnected, count: 0, error: nil)
         updateIntegration(.github, state: .disconnected, count: 0, error: nil)
         persist()
+    }
+
+    func refreshTeamAndBilling() async {
+        guard let cloudProjectID, isSignedIn else {
+            cloudTeam = nil
+            cloudBilling = nil
+            return
+        }
+        do {
+            async let team = cloud.team(projectID: cloudProjectID)
+            async let billing = cloud.billing(projectID: cloudProjectID)
+            cloudTeam = try await team
+            cloudBilling = try await billing
+        } catch {
+            showToast(SecretRedactor.redact(error.localizedDescription))
+        }
+    }
+
+    func inviteTeamMember(email: String, role: String) async -> Bool {
+        guard let cloudProjectID else { return false }
+        isCloudBusy = true
+        defer { isCloudBusy = false }
+        do {
+            let url = try await cloud.invite(projectID: cloudProjectID, email: email, role: role)
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(url.absoluteString, forType: .string)
+            await refreshTeamAndBilling()
+            showToast("Invitation link copied")
+            return true
+        } catch {
+            showToast(SecretRedactor.redact(error.localizedDescription))
+            return false
+        }
+    }
+
+    func revokeInvitation(_ invitation: CloudInvitation) async {
+        guard let cloudProjectID else { return }
+        do {
+            try await cloud.revokeInvitation(projectID: cloudProjectID, invitationID: invitation.id)
+            await refreshTeamAndBilling()
+            showToast("Invitation revoked")
+        } catch { showToast(SecretRedactor.redact(error.localizedDescription)) }
+    }
+
+    func updateMember(_ member: CloudTeamMember, role: String) async {
+        guard let cloudProjectID else { return }
+        do {
+            cloudTeam = try await cloud.updateMember(projectID: cloudProjectID, userID: member.userId, role: role)
+            showToast("Role updated")
+        } catch { showToast(SecretRedactor.redact(error.localizedDescription)) }
+    }
+
+    func removeMember(_ member: CloudTeamMember) async {
+        guard let cloudProjectID else { return }
+        do {
+            cloudTeam = try await cloud.removeMember(projectID: cloudProjectID, userID: member.userId)
+            if member.isCurrentUser { await refreshCloudProjects() }
+            showToast(member.isCurrentUser ? "Left workspace" : "Member removed")
+        } catch { showToast(SecretRedactor.redact(error.localizedDescription)) }
+    }
+
+    func openCheckout() async {
+        guard let cloudProjectID else { return }
+        do { try cloud.openExternalURL(try await cloud.checkoutURL(projectID: cloudProjectID)) }
+        catch { showToast(SecretRedactor.redact(error.localizedDescription)) }
+    }
+
+    func openBillingPortal() async {
+        guard let cloudProjectID else { return }
+        do { try cloud.openExternalURL(try await cloud.billingPortalURL(projectID: cloudProjectID)) }
+        catch { showToast(SecretRedactor.redact(error.localizedDescription)) }
+    }
+
+    func deleteCurrentProject() async -> Bool {
+        guard let projectID = cloudProjectID else { return false }
+        do {
+            try await cloud.deleteProject(projectID: projectID)
+            cloudProjectID = nil
+            await refreshCloudProjects()
+            showToast("Project deleted")
+            return true
+        } catch {
+            showToast(SecretRedactor.redact(error.localizedDescription))
+            return false
+        }
+    }
+
+    func deleteAccount() async -> Bool {
+        do {
+            try await cloud.deleteAccount()
+            try? await cloud.signOut()
+            cloudEmail = nil
+            isCloudAuthenticated = false
+            cloudProjects = []
+            cloudProjectID = nil
+            cloudTeam = nil
+            cloudBilling = nil
+            showToast("Account deleted")
+            return true
+        } catch {
+            showToast(SecretRedactor.redact(error.localizedDescription))
+            return false
+        }
     }
 
     func connectSupabase() async {
@@ -1133,6 +1299,63 @@ final class AppModel: ObservableObject {
         selectedCaseID = cases.first?.id
         filter = .new
         persist()
+        scheduleSharedCaseSync()
+    }
+
+    private func scheduleSharedCaseSync() {
+        guard cloudProjectID != nil, isSignedIn else { return }
+        sharedCaseSyncTask?.cancel()
+        sharedCaseSyncTask = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(350)) }
+            catch { return }
+            await self?.syncSharedCases()
+            self?.sharedCaseSyncTask = nil
+        }
+    }
+
+    private func restartCollaborationRefresh() {
+        collaborationRefreshTask?.cancel()
+        collaborationRefreshTask = nil
+        guard cloudProjectID != nil, isSignedIn else { return }
+        collaborationRefreshTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(20)) }
+                catch { return }
+                guard let self else { return }
+                await self.refreshSharedCases(reportErrors: false)
+            }
+        }
+    }
+
+    private func syncSharedCases() async {
+        guard let cloudProjectID, isSignedIn else { return }
+        do {
+            cases = try await cloud.syncSharedCases(projectID: cloudProjectID, cases: cases)
+            persist()
+        } catch {
+            showToast(SecretRedactor.redact(error.localizedDescription))
+        }
+    }
+
+    private func refreshSharedCases(reportErrors: Bool = true) async {
+        guard let cloudProjectID, isSignedIn else { return }
+        guard sharedCaseSyncTask == nil else { return }
+        do {
+            let ignored = Set(ignoredFingerprints.map(\.fingerprint))
+            let remote = try await cloud.sharedCases(projectID: cloudProjectID)
+                .filter { !ignored.contains($0.fingerprint) }
+            if remote.isEmpty, !cases.isEmpty {
+                await syncSharedCases()
+            } else {
+                cases = remote
+                if let selectedCaseID, !cases.contains(where: { $0.id == selectedCaseID }) {
+                    self.selectedCaseID = nil
+                }
+                persist()
+            }
+        } catch {
+            if reportErrors { showToast(SecretRedactor.redact(error.localizedDescription)) }
+        }
     }
 
     private func startReceiver() {
@@ -1253,6 +1476,9 @@ final class AppModel: ObservableObject {
         await refreshSupabaseConnection()
         await refreshGitHubConnection()
         await refreshApplicationConnection()
+        await refreshSharedCases()
+        await refreshTeamAndBilling()
+        restartCollaborationRefresh()
     }
 
     private func refreshCloudProjects() async {
