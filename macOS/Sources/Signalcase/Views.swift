@@ -1151,13 +1151,19 @@ private struct FeedbackSheet: View {
     }
 }
 
+private enum SettingsDestructiveAction: String, Identifiable {
+    case project
+    case account
+
+    var id: String { rawValue }
+}
+
 private struct GeneralSettingsView: View {
     @EnvironmentObject private var model: AppModel
     @State private var newProjectName = ""
     @State private var isCreatingProject = false
     @State private var isProjectPickerPresented = false
-    @State private var confirmsProjectDeletion = false
-    @State private var confirmsAccountDeletion = false
+    @State private var destructiveAction: SettingsDestructiveAction?
     @FocusState private var isProjectNameFocused: Bool
 
     var body: some View {
@@ -1272,7 +1278,7 @@ private struct GeneralSettingsView: View {
                                     title: "Delete current project",
                                     detail: "Permanently removes its cases, connections, and team access",
                                     actionTitle: "Delete"
-                                ) { confirmsProjectDeletion = true }
+                                ) { destructiveAction = .project }
                                 rowDivider
                             }
                             settingsRow(
@@ -1281,7 +1287,7 @@ private struct GeneralSettingsView: View {
                                 title: "Delete account",
                                 detail: "Permanently removes your account and workspaces you solely own",
                                 actionTitle: "Delete"
-                            ) { confirmsAccountDeletion = true }
+                            ) { destructiveAction = .account }
                         }
                         .settingsSurface()
                     }
@@ -1292,21 +1298,27 @@ private struct GeneralSettingsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(SignalTheme.background)
-        .alert("Delete this project?", isPresented: $confirmsProjectDeletion) {
-            Button("Cancel", role: .cancel) {}
-            Button("Delete project", role: .destructive) {
-                Task { _ = await model.deleteCurrentProject() }
+        .alert(item: $destructiveAction) { action in
+            switch action {
+            case .project:
+                return Alert(
+                    title: Text("Delete this project?"),
+                    message: Text("This permanently deletes the project, shared cases, connections, and team access. Only a workspace owner can delete it."),
+                    primaryButton: .destructive(Text("Delete project")) {
+                        Task { _ = await model.deleteCurrentProject() }
+                    },
+                    secondaryButton: .cancel()
+                )
+            case .account:
+                return Alert(
+                    title: Text("Delete your Signalcase account?"),
+                    message: Text("This cannot be undone. Transfer ownership first if a workspace still has other members."),
+                    primaryButton: .destructive(Text("Delete account")) {
+                        Task { _ = await model.deleteAccount() }
+                    },
+                    secondaryButton: .cancel()
+                )
             }
-        } message: {
-            Text("This permanently deletes the project, shared cases, and provider connections for every teammate.")
-        }
-        .alert("Delete your Signalcase account?", isPresented: $confirmsAccountDeletion) {
-            Button("Cancel", role: .cancel) {}
-            Button("Delete account", role: .destructive) {
-                Task { _ = await model.deleteAccount() }
-            }
-        } message: {
-            Text("This cannot be undone. Transfer ownership first if a workspace still has other members.")
         }
     }
 

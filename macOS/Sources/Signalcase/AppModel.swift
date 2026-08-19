@@ -885,6 +885,9 @@ final class AppModel: ObservableObject {
 
     func deleteCurrentProject() async -> Bool {
         guard let projectID = cloudProjectID else { return false }
+        guard !isCloudBusy else { return false }
+        isCloudBusy = true
+        defer { isCloudBusy = false }
         do {
             try await cloud.deleteProject(projectID: projectID)
             cloudProjectID = nil

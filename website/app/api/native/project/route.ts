@@ -86,8 +86,19 @@ export async function DELETE(request: Request) {
       bucket: "projects:delete", maximum: 10, requireEntitlement: false,
     });
     await requireWorkspaceOwner(context.admin, context.project.workspace_id, context.user.id);
-    const { error } = await context.admin.from("projects").delete().eq("id", body.projectId);
+    // Delete as the signed-in user so the projects_delete RLS policy remains
+    // the source of truth. The service role is intentionally not granted CRUD
+    // access to the projects table.
+    const { data: deletedProject, error } = await context.userClient
+      .from("projects")
+      .delete()
+      .eq("id", body.projectId)
+      .select("id")
+      .maybeSingle();
     if (error) throw error;
+    if (!deletedProject) {
+      throw new APIError("The project was not deleted. Refresh your projects and try again.", 409);
+    }
     return Response.json({ deleted: true });
   } catch (error) {
     return jsonError(error, request);
