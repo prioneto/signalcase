@@ -260,7 +260,7 @@ export default function Home() {
         <a className="primary" href="#sources">See supported sources <span>→</span></a>
       </section>
 
-      <footer className="shell"><div className="brand"><span className="brand-mark">⌁</span><span>SIGNALCASE</span></div><p>Native bug evidence for small development teams.</p><span>MACOS · 2026</span></footer>
+      <footer className="shell" id="footer"><div className="brand"><span className="brand-mark">⌁</span><span>SIGNALCASE</span></div><p>Native bug evidence for small development teams.</p><nav className="footer-links"><a href="/support">Support</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/refunds">Refunds</a></nav><span>MACOS · 2026</span></footer>
     </main>
   );
 }

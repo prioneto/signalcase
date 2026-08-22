@@ -1,4 +1,5 @@
 import { createAdminClient, createUserClient } from "@/lib/supabase/admin";
+import { captureServerError } from "@/lib/error-reporting";
 import { randomUUID } from "node:crypto";
 
 export class APIError extends Error {
@@ -44,7 +45,7 @@ export async function requireProjectAccess(request: Request, projectId: string) 
   return { ...auth, project: data };
 }
 
-export function jsonError(error: unknown, request?: Request) {
+export async function jsonError(error: unknown, request?: Request) {
   const status = error instanceof APIError ? error.status : 500;
   const message = error instanceof Error ? error.message : "Unexpected server error.";
   const requestID = request?.headers.get("x-vercel-id") ?? randomUUID();
@@ -54,6 +55,11 @@ export function jsonError(error: unknown, request?: Request) {
       method: request?.method,
       path: request ? new URL(request.url).pathname : undefined,
       message,
+    });
+    await captureServerError(error, {
+      method: request?.method,
+      path: request ? new URL(request.url).pathname : undefined,
+      requestId: requestID,
     });
   }
   return Response.json(

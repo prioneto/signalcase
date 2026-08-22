@@ -32,6 +32,18 @@ CLOUD_URL="${CLOUD_URL:-$(read_env_value NEXT_PUBLIC_SITE_URL "${WEBSITE_ENV_FIL
 CLOUD_URL="${CLOUD_URL:-http://localhost:3002}"
 SIGNING_IDENTITY="${SIGNALCASE_CODESIGN_IDENTITY:-$(read_env_value SIGNALCASE_CODESIGN_IDENTITY "${BUILD_ENV_FILE}")}"
 
+# The app version lives in macOS/VERSION so releases and the hosted update
+# manifest stay in one place. Override with SIGNALCASE_APP_VERSION when needed.
+APP_VERSION="${SIGNALCASE_APP_VERSION:-$(head -1 "${PROJECT_DIR}/VERSION" 2>/dev/null | tr -d '[:space:]')}"
+APP_VERSION="${APP_VERSION:-0.1.0}"
+if [[ -n "${SIGNALCASE_APP_BUILD:-}" ]]; then
+    APP_BUILD="${SIGNALCASE_APP_BUILD}"
+elif APP_BUILD="$(git -C "${PROJECT_DIR:h}" rev-list --count HEAD 2>/dev/null)"; then
+    :
+else
+    APP_BUILD="1"
+fi
+
 if [[ -z "${SUPABASE_URL}" || -z "${SUPABASE_PUBLISHABLE_KEY}" ]]; then
     print -u2 "Missing public app configuration. Copy .env.build.example to .env.build and fill it in."
     exit 1
@@ -82,8 +94,8 @@ plutil -insert CFBundleIconFile -string AppIcon "${INFO_PLIST}"
 plutil -insert CFBundleIconName -string AppIcon "${INFO_PLIST}"
 plutil -insert CFBundleName -string Signalcase "${INFO_PLIST}"
 plutil -insert CFBundlePackageType -string APPL "${INFO_PLIST}"
-plutil -insert CFBundleShortVersionString -string 0.1.0 "${INFO_PLIST}"
-plutil -insert CFBundleVersion -string 1 "${INFO_PLIST}"
+plutil -insert CFBundleShortVersionString -string "${APP_VERSION}" "${INFO_PLIST}"
+plutil -insert CFBundleVersion -string "${APP_BUILD}" "${INFO_PLIST}"
 plutil -insert LSMinimumSystemVersion -string 14.0 "${INFO_PLIST}"
 plutil -insert NSHighResolutionCapable -bool true "${INFO_PLIST}"
 plutil -insert CFBundleURLTypes -json '[{"CFBundleURLName":"app.signalcase.callback","CFBundleURLSchemes":["signalcase"]}]' "${INFO_PLIST}"
@@ -108,7 +120,7 @@ else
     print -u2 "Warning: no Apple code-signing identity was found. Keychain access may be requested again after each rebuild."
 fi
 
-print "Built ${APP_DIR}"
+print "Built ${APP_DIR} (version ${APP_VERSION}, build ${APP_BUILD})"
 
 if [[ "${1:-}" == "--open" ]]; then
     open "${APP_DIR}"

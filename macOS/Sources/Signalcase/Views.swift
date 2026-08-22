@@ -1264,6 +1264,15 @@ private struct GeneralSettingsView: View {
                             actionTitle: "Show",
                             action: model.restartOnboarding
                         )
+                        rowDivider
+                        settingsRow(
+                            icon: "arrow.down.circle",
+                            tint: model.availableRelease == nil ? SignalTheme.muted : SignalTheme.lime,
+                            title: updateRowTitle,
+                            detail: updateRowDetail,
+                            actionTitle: updateRowActionTitle,
+                            action: updateRowAction
+                        )
                     }
                     .settingsSurface()
                 }
@@ -1330,6 +1339,32 @@ private struct GeneralSettingsView: View {
             Text(title).sectionLabel()
             content()
         }
+    }
+
+    private var updateRowTitle: String {
+        if let release = model.availableRelease, let version = release.version {
+            return "Version \(version) is available"
+        }
+        return "Signalcase \(AppModel.appVersion)"
+    }
+
+    private var updateRowDetail: String {
+        if model.availableRelease != nil {
+            return "Download the new build from the Signalcase website"
+        }
+        return "Checks for a newer build automatically every day"
+    }
+
+    private var updateRowActionTitle: String {
+        if model.availableRelease != nil { return "Download" }
+        return model.isCheckingForUpdates ? "Checking…" : "Check for Updates"
+    }
+
+    private var updateRowAction: () -> Void {
+        if model.availableRelease?.downloadURL != nil {
+            return { model.downloadAvailableUpdate() }
+        }
+        return { Task { await model.checkForUpdates(manual: true) } }
     }
 
     private var projectManager: some View {

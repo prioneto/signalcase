@@ -45,11 +45,14 @@ final class AppModel: ObservableObject {
     @Published var cloudBilling: CloudBillingState?
     @Published var isCloudBusy = false
     @Published var isRestoringCloudSession = true
+    @Published var availableRelease: MacReleaseInfo?
+    @Published var isCheckingForUpdates = false
 
     private var receiver: LocalEventReceiver?
     private var automaticSyncTask: Task<Void, Never>?
     private var sharedCaseSyncTask: Task<Void, Never>?
     private var collaborationRefreshTask: Task<Void, Never>?
+    private var diagnosticsFlushTask: Task<Void, Never>?
     private var processedWebhookIDs: [String]
     private let cloud = SignalcaseCloud()
 
@@ -130,6 +133,8 @@ final class AppModel: ObservableObject {
         }
         if hasApplicationCredential { startReceiver() }
         restartAutomaticSync()
+        DiagnosticsReporter.shared.install()
+        startDiagnosticsFlushLoop()
         Task { await restoreCloudSession() }
     }
 
@@ -218,12 +223,8 @@ final class AppModel: ObservableObject {
     ) async throws {
         let cleanSubject = subject.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        let version = includeAppDetails
-            ? Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1"
-            : "Not included"
-        let build = includeAppDetails
-            ? Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "development"
-            : "Not included"
+        let version = includeAppDetails ? Self.appVersion : "Not included"
+        let build = includeAppDetails ? Self.appBuild : "Not included"
         let sourceNames = includeAppDetails
             ? integrations.filter { $0.state == .connected }.map(\.source.title).sorted()
             : []
@@ -247,6 +248,71 @@ final class AppModel: ObservableObject {
         isOnboardingPresented = false
         persist()
         if openConnections { openSettings(.connections) }
+    }
+
+    static var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0"
+    }
+
+    static var appBuild: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
+    }
+
+    /// Checks the hosted release manifest. Automatic checks run at most once a
+    /// day after sign-in; manual checks always run and report via toast.
+    func checkForUpdates(manual: Bool) async {
+        let automaticCheckKey = "signalcase.lastAutomaticUpdateCheck"
+        if !manual {
+            if let last = UserDefaults.standard.object(forKey: automaticCheckKey) as? Date,
+               Date().timeIntervalSince(last) < 86_400 { return }
+            UserDefaults.standard.set(Date(), forKey: automaticCheckKey)
+        }
+        guard !isCheckingForUpdates else { return }
+        isCheckingForUpdates = true
+        defer { isCheckingForUpdates = false }
+        do {
+            let release = try await cloud.fetchLatestRelease()
+            guard release.configured == true, let latestVersion = release.version else {
+                if manual { showToast("No release has been published yet") }
+                return
+            }
+            if UpdateCheck.isNewer(
+                latest: release,
+                currentVersion: Self.appVersion,
+                currentBuild: Self.appBuild
+            ) {
+                availableRelease = release
+                showToast("Signalcase \(latestVersion) is available · download it in Settings")
+            } else {
+                availableRelease = nil
+                if manual { showToast("You are up to date · version \(Self.appVersion)") }
+            }
+        } catch {
+            if manual {
+                showToast(SecretRedactor.redact(error.localizedDescription))
+            }
+        }
+    }
+
+    func downloadAvailableUpdate() {
+        guard let url = availableRelease?.downloadURL else { return }
+        try? cloud.openExternalURL(url)
+    }
+
+    func flushPendingDiagnostics() async {
+        await DiagnosticsReporter.shared.flush { [cloud] report in
+            try await cloud.submitDiagnosticReport(report)
+        }
+    }
+
+    private func startDiagnosticsFlushLoop() {
+        diagnosticsFlushTask?.cancel()
+        diagnosticsFlushTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.flushPendingDiagnostics()
+                try? await Task.sleep(for: .seconds(1_800))
+            }
+        }
     }
 
     func restartOnboarding() {
@@ -1471,6 +1537,7 @@ final class AppModel: ObservableObject {
         guard let identity = await cloud.restoreSession() else {
             cloudEmail = nil
             isCloudAuthenticated = false
+            await checkForUpdates(manual: false)
             return
         }
         cloudEmail = identity.email
@@ -1482,6 +1549,8 @@ final class AppModel: ObservableObject {
         await refreshSharedCases()
         await refreshTeamAndBilling()
         restartCollaborationRefresh()
+        await flushPendingDiagnostics()
+        await checkForUpdates(manual: false)
     }
 
     private func refreshCloudProjects() async {

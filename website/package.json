@@ -9,6 +9,7 @@
     "dev": "next dev -p 3002",
     "build": "next build",
     "start": "next start -p 3002",
+    "typecheck": "tsc --noEmit",
     "test": "node --import=tsx --test tests/**/*.test.ts"
   },
   "dependencies": {

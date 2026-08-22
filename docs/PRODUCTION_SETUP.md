@@ -188,6 +188,24 @@ https://YOUR_DOMAIN/api/billing/webhook
 
 The server verifies Stripe's raw webhook body and signature and records event IDs for idempotency. Never place a Stripe secret or webhook signing secret in a `NEXT_PUBLIC_` variable or the Mac app.
 
+### Error monitoring
+
+The server and the Mac app report errors into the `error_reports` table automatically; no third-party account is required:
+
+- Every API route funnels 5xx failures through `jsonError`, which logs to Vercel and stores a redacted report (message, short stack, path, request ID).
+- The native app batches crash reports and non-fatal errors locally in `DiagnosticsReporter` and uploads them to `/api/client/errors` (rate limited to 20 per hour per user or IP). Reports contain versions and messages only—never logs or credentials.
+- Review recent issues with SQL in the Supabase dashboard:
+
+```sql
+select source, count(*) as reports, max(message)
+from error_reports
+where occurred_at > now() - interval '7 days'
+group by source
+order by reports desc;
+```
+
+Reports are deleted after 90 days by the nightly cleanup cron. The customer-facing Terms, Privacy, Refunds, and Support pages are published at `/terms`, `/privacy`, `/refunds`, and `/support`; update the entity details in `website/lib/site.ts` (legal entity name, support email addresses) before launch.
+
 ## 8. Build the production Mac app
 
 Save the public production configuration once:
@@ -206,6 +224,12 @@ Open `macOS/.env.build`, replace its three placeholder values, and save it. The 
 The app is created at `macOS/.build/Signalcase.app`. The build script registers the `signalcase://` callback scheme. It never embeds the Supabase secret key, Management OAuth client secret, provider access tokens, or encryption key.
 
 The build checks `macOS/.env.build` first. If that file does not exist, it reads the three public values from `website/.env.local`, which keeps the existing localhost workflow working.
+
+### Versioning and the update channel
+
+- The marketing version lives in `macOS/VERSION`. Bump it for each release; the build number is derived from the commit count (override with `SIGNALCASE_APP_VERSION` / `SIGNALCASE_APP_BUILD`).
+- After publishing a notarized build, set `MAC_RELEASE_VERSION` and `MAC_RELEASE_BUILD` in Vercel to match. The app polls `/api/releases/latest` once per day and on manual **Settings → General → Check for Updates**; when the manifest is newer, Settings shows a **Download** button that opens `NEXT_PUBLIC_MAC_DOWNLOAD_URL`.
+- This is an update notification channel, not silent auto-update: users still download and replace the app. Sparkle remains an option later if fully automatic updates become necessary.
 
 ## 9. Verify the real end-to-end flow
 
@@ -262,4 +286,8 @@ If authorization succeeds but project selection or sync returns `403`, confirm t
 
 ## 11. Distribute outside the Mac App Store
 
-The current build script creates the `.app`, but public distribution also requires an Apple Developer ID certificate, hardened-runtime signing, notarization, stapling, and a hosted `.dmg` or `.zip`. After hosting the notarized artifact, set `NEXT_PUBLIC_MAC_DOWNLOAD_URL` in Vercel and redeploy so the authenticated dashboard shows the download button.
+The current build script creates the `.app`, but public distribution also requires an Apple Developer ID certificate, hardened-runtime signing, notarization, stapling, and a hosted `.dmg` or `.zip`. After hosting the notarized artifact:
+
+1. Set `NEXT_PUBLIC_MAC_DOWNLOAD_URL` in Vercel and redeploy so the authenticated dashboard shows the download button.
+2. Set `MAC_RELEASE_VERSION` and `MAC_RELEASE_BUILD` to the published version from `macOS/VERSION` and the build number printed by `build-app.sh`. Existing installs then surface the update through **Settings → General → Check for Updates** within a day.
+3. Verify `https://YOUR_DOMAIN/api/releases/latest` returns the new values with `"configured": true`.

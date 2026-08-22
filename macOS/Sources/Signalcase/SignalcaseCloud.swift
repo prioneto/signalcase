@@ -448,6 +448,69 @@ final class SignalcaseCloud {
         }
     }
 
+    /// Public release manifest used by the update checker. Works without a
+    /// session so signed-out installs can still learn about new versions.
+    func fetchLatestRelease() async throws -> MacReleaseInfo {
+        guard let serverURL, let url = URL(string: "/api/releases/latest", relativeTo: serverURL) else {
+            throw SignalcaseCloudError.notConfigured("This build is missing the Signalcase server URL.")
+        }
+        var request = URLRequest(url: url)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw SignalcaseCloudError.invalidResponse
+        }
+        do { return try makeDecoder().decode(MacReleaseInfo.self, from: data) }
+        catch { throw SignalcaseCloudError.invalidResponse }
+    }
+
+    /// Sends one diagnostics report. Deliberately unauthenticated so crash
+    /// reports still arrive when sign-in is what failed.
+    func submitDiagnosticReport(_ report: DiagnosticsReporter.PendingReport) async throws {
+        struct Submission: Encodable {
+            let source: String
+            let message: String
+            let stack: String?
+            let appVersion: String
+            let osVersion: String
+            let occurredAt: Date
+            let context: [String: String]
+
+            enum CodingKeys: String, CodingKey {
+                case source, message, stack, context
+                case appVersion = "app_version"
+                case osVersion = "os_version"
+                case occurredAt = "occurred_at"
+            }
+        }
+        guard let serverURL, let url = URL(string: "/api/client/errors", relativeTo: serverURL) else {
+            throw SignalcaseCloudError.notConfigured("This build is missing the Signalcase server URL.")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        request.httpBody = try encoder.encode(Submission(
+            source: "macos",
+            message: report.message,
+            stack: report.stack,
+            appVersion: DiagnosticsReporter.appVersion,
+            osVersion: ProcessInfo.processInfo.operatingSystemVersionString,
+            occurredAt: report.occurredAt,
+            context: report.context
+        ))
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw SignalcaseCloudError.invalidResponse
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw SignalcaseCloudError.server("Diagnostics upload returned HTTP \(http.statusCode).")
+        }
+    }
+
+
     func connectionStatus(projectID: UUID) async throws -> CloudConnectionStatus {
         try await request(
             path: "/api/integrations/supabase/status?projectId=\(projectID.uuidString)",

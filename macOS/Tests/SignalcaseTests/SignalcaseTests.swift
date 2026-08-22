@@ -727,4 +727,104 @@ final class SignalcaseTests: XCTestCase {
             WorkspaceStore.projectFileName(second)
         )
     }
+
+    func testUpdateCheckComparesVersionsNumerically() {
+        XCTAssertTrue(UpdateCheck.isNewer(
+            latest: MacReleaseInfo(channel: "stable", version: "0.2.0", build: "1", downloadURL: nil, notesURL: nil, configured: true),
+            currentVersion: "0.1.0",
+            currentBuild: "99"
+        ))
+        XCTAssertFalse(UpdateCheck.isNewer(
+            latest: MacReleaseInfo(channel: "stable", version: "0.1.0", build: "2", downloadURL: nil, notesURL: nil, configured: true),
+            currentVersion: "0.1.0",
+            currentBuild: "2"
+        ))
+        XCTAssertTrue(UpdateCheck.isNewer(
+            latest: MacReleaseInfo(channel: "stable", version: "0.1.0", build: "12", downloadURL: nil, notesURL: nil, configured: true),
+            currentVersion: "0.1.0",
+            currentBuild: "11"
+        ))
+        XCTAssertFalse(UpdateCheck.isNewer(
+            latest: MacReleaseInfo(channel: "stable", version: "0.1.0", build: "11", downloadURL: nil, notesURL: nil, configured: true),
+            currentVersion: "0.1.0",
+            currentBuild: "12"
+        ))
+    }
+
+    func testUpdateCheckIgnoresPrereleaseSuffixesAndLeadingV() {
+        XCTAssertEqual(UpdateCheck.compareVersions("v0.10.1", "0.9.9"), .orderedDescending)
+        XCTAssertEqual(UpdateCheck.compareVersions("0.2.10", "0.2.9"), .orderedDescending)
+        XCTAssertEqual(UpdateCheck.compareVersions("1.0.0-beta.1", "1.0.0"), .orderedSame)
+        XCTAssertEqual(UpdateCheck.compareVersions("0.1", "0.1.0"), .orderedSame)
+    }
+
+    func testUpdateCheckNeverPromptsWhenTheManifestIsUnconfigured() {
+        XCTAssertFalse(UpdateCheck.isNewer(
+            latest: MacReleaseInfo(channel: "stable", version: nil, build: nil, downloadURL: nil, notesURL: nil, configured: false),
+            currentVersion: "0.1.0",
+            currentBuild: "1"
+        ))
+    }
+
+    func testReleaseManifestDecodesFromTheServerShape() throws {
+        let payload = Data("""
+        {
+          "channel": "stable",
+          "version": "0.2.0",
+          "build": "42",
+          "downloadUrl": "https://signalcase.app/downloads/Signalcase-0.2.0.dmg",
+          "notesUrl": null,
+          "configured": true
+        }
+        """.utf8)
+
+        let release = try JSONDecoder().decode(MacReleaseInfo.self, from: payload)
+
+        XCTAssertEqual(release.version, "0.2.0")
+        XCTAssertEqual(release.build, "42")
+        XCTAssertEqual(release.downloadURL?.absoluteString, "https://signalcase.app/downloads/Signalcase-0.2.0.dmg")
+        XCTAssertTrue(release.configured == true)
+    }
+
+    func testDiagnosticsReporterStoresRedactsAndDrainsReports() {
+        let suiteName = "test.signalcase.diagnostics"
+        let suite = UserDefaults(suiteName: suiteName)!
+        suite.removePersistentDomain(forName: suiteName)
+        let reporter = DiagnosticsReporter(defaults: suite)
+
+        reporter.capture(
+            "Sync failed with token=supersecret",
+            context: ["source": "supabase"]
+        )
+
+        let pending = reporter.takePending(limit: 5)
+        XCTAssertEqual(pending.count, 1)
+        XCTAssertEqual(pending.first?.kind, "error")
+        XCTAssertEqual(pending.first?.context["source"], "supabase")
+        XCTAssertFalse(pending.first?.message.contains("supersecret") ?? true)
+        XCTAssertTrue(reporter.takePending(limit: 5).isEmpty)
+    }
+
+    func testDiagnosticsReporterKeepsUndeliveredReportsWhenUploadFails() async {
+        let suiteName = "test.signalcase.diagnostics.restore"
+        let suite = UserDefaults(suiteName: suiteName)!
+        suite.removePersistentDomain(forName: suiteName)
+        let reporter = DiagnosticsReporter(defaults: suite)
+
+        reporter.capture("first failure")
+        reporter.capture("second failure")
+
+        var attempts = 0
+        let deliveredBeforeFailure = await reporter.flush { _ in
+            attempts += 1
+            if attempts == 1 { throw SignalcaseCloudError.invalidResponse }
+        }
+
+        XCTAssertEqual(deliveredBeforeFailure, 0)
+        XCTAssertEqual(reporter.pendingCount(), 2)
+
+        let recovered = await reporter.flush { _ in }
+        XCTAssertEqual(recovered, 2)
+        XCTAssertEqual(reporter.pendingCount(), 0)
+    }
 }
