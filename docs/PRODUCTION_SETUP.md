@@ -1,5 +1,7 @@
 # Signalcase production setup
 
+This is the **operator runbook for the hosted signalcase.app deployment**. If you want to run your own instance, read [`docs/SELF_HOSTING.md`](SELF_HOSTING.md) instead.
+
 The code is ready for the native account and Supabase Management OAuth flow. The following steps require access to your Supabase organization and Vercel project.
 
 ## 1. Apply the database migration
@@ -8,7 +10,7 @@ From the repository root, the simplest option is:
 
 ```bash
 supabase login
-supabase link --project-ref aaowyafijolazrrwlwob
+supabase link --project-ref YOUR_PROJECT_REF
 supabase db push
 ```
 
@@ -157,36 +159,9 @@ cd website
 npm run dev
 ```
 
-## 7. Configure Stripe subscriptions
+## 7. Billing — not applicable
 
-1. In Stripe, switch to **Test mode**.
-2. Open **Product catalog** and create `Signalcase Team`.
-3. Add one recurring monthly price matching the public price on the Signalcase website.
-4. Copy the `price_…` identifier.
-5. Open **Developers** → **Webhooks** and add:
-
-```text
-https://YOUR_DOMAIN/api/billing/webhook
-```
-
-6. Subscribe the endpoint to `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`, and `invoice.payment_failed`.
-7. Copy the webhook signing secret (`whsec_…`).
-8. Add the following Vercel Production variables and redeploy:
-
-| Variable | Value |
-| --- | --- |
-| `STRIPE_SECRET_KEY` | Stripe secret key (`sk_test_…` while testing) |
-| `STRIPE_WEBHOOK_SECRET` | Endpoint signing secret (`whsec_…`) |
-| `STRIPE_TEAM_PRICE_ID` | Recurring Team price (`price_…`) |
-| `NEXT_PUBLIC_TEAM_PRICE_LABEL` | Public display text, for example `$19 / month` |
-| `BILLING_ENFORCEMENT_ENABLED` | Keep `false` until the full test succeeds |
-
-9. In **Settings** → **Billing** → **Customer portal**, enable payment-method updates and subscription cancellation.
-10. Start Checkout from the native app or `/dashboard`, complete it with a Stripe test card, and confirm the workspace changes to `active`.
-11. Test a failed renewal and cancellation in Stripe. Confirm the webhook updates Signalcase.
-12. Only after those tests pass, use live Stripe keys, create the live webhook, and change `BILLING_ENFORCEMENT_ENABLED` to `true`.
-
-The server verifies Stripe's raw webhook body and signature and records event IDs for idempotency. Never place a Stripe secret or webhook signing secret in a `NEXT_PUBLIC_` variable or the Mac app.
+Signalcase is distributed free of charge and contains no payment code. There is nothing to configure.
 
 ### Error monitoring
 
