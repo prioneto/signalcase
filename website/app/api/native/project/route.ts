@@ -1,5 +1,5 @@
 import { APIError, authenticate, jsonError } from "@/lib/api-auth";
-import { requireWorkspaceEntitlement, requireWorkspaceOwner, workspaceRole } from "@/lib/billing";
+import { requireWorkspaceOwner, workspaceLimits, workspaceRole } from "@/lib/workspace";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { requireProjectContext } from "@/lib/project-context";
 
@@ -43,7 +43,7 @@ export async function POST(request: Request) {
     const workspaceID = body.workspaceId ?? workspace.id;
     const role = await workspaceRole(admin, workspaceID, user.id);
     await requireWorkspaceOwner(admin, workspaceID, user.id);
-    const billing = await requireWorkspaceEntitlement(admin, workspaceID, role);
+    const limits = await workspaceLimits(admin, workspaceID);
     const name = body.name?.trim();
     const slug = body.slug?.trim().toLowerCase();
     if (!name || !slug || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
@@ -62,8 +62,8 @@ export async function POST(request: Request) {
     const { count, error: countError } = await admin.from("projects")
       .select("id", { count: "exact", head: true }).eq("workspace_id", workspaceID);
     if (countError) throw countError;
-    if ((count ?? 0) >= billing.projectLimit) {
-      throw new APIError(`This plan includes ${billing.projectLimit} projects.`, 409);
+    if ((count ?? 0) >= limits.projectLimit) {
+      throw new APIError(`This workspace includes ${limits.projectLimit} projects.`, 409);
     }
 
     const { data: project, error: insertError } = await userClient
@@ -83,7 +83,7 @@ export async function DELETE(request: Request) {
     const body = (await request.json()) as Body;
     if (!body.projectId) throw new APIError("Choose a project to delete.");
     const context = await requireProjectContext(request, body.projectId, {
-      bucket: "projects:delete", maximum: 10, requireEntitlement: false,
+      bucket: "projects:delete", maximum: 10, includeLimits: false,
     });
     await requireWorkspaceOwner(context.admin, context.project.workspace_id, context.user.id);
     // Delete as the signed-in user so the projects_delete RLS policy remains

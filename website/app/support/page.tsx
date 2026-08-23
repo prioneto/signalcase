@@ -25,12 +25,14 @@ export default function SupportPage() {
 
       <LegalSection heading="Common questions">
         <dl>
+          <dt>Is it really free?</dt>
+          <dd>Yes. Download the app and use it with your whole team — no payment, no card, no ads.</dd>
           <dt>Sync finds nothing</dt>
           <dd>Check that the source is connected in Settings → Connections, that the time window covers the failure, and that provider retention still holds the events.</dd>
           <dt>Authorization fails with 403</dt>
           <dd>Disconnect and reconnect the source so the requested read-only scopes are granted again.</dd>
-          <dt>Billing questions</dt>
-          <dd>Owners can manage the subscription under Settings → Billing; see also our refunds page.</dd>
+          <dt>Cases don&apos;t sync between Macs</dt>
+          <dd>Make sure both Macs are signed in with the same GitHub account and have selected the same project in Settings → General.</dd>
         </dl>
       </LegalSection>
 

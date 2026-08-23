@@ -103,7 +103,6 @@ enum CaseFilter: String, CaseIterable, Identifiable {
 enum SettingsSection: String, CaseIterable, Identifiable {
     case general
     case team
-    case billing
     case connections
     case activity
 
@@ -113,7 +112,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .general: "General"
         case .team: "Team"
-        case .billing: "Billing"
         case .connections: "Connections"
         case .activity: "Activity & data"
         }
@@ -123,7 +121,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .general: "gearshape"
         case .team: "person.2"
-        case .billing: "creditcard"
         case .connections: "point.3.connected.trianglepath.dotted"
         case .activity: "checklist.unchecked"
         }

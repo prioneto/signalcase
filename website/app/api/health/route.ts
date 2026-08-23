@@ -34,14 +34,6 @@ export async function GET() {
           && process.env.GITHUB_APP_PRIVATE_KEY
           ? "configured"
           : "missing",
-        billing: process.env.STRIPE_SECRET_KEY
-          && process.env.STRIPE_WEBHOOK_SECRET
-          && process.env.STRIPE_TEAM_PRICE_ID
-          ? "configured"
-          : "missing",
-        billingEnforcement: process.env.BILLING_ENFORCEMENT_ENABLED === "true"
-          ? "enabled"
-          : "disabled",
         retentionCleanup: process.env.CRON_SECRET ? "configured" : "missing",
       },
     },

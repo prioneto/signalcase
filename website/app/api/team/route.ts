@@ -1,5 +1,5 @@
 import { APIError, jsonError } from "@/lib/api-auth";
-import { requireWorkspaceOwner, workspaceRole } from "@/lib/billing";
+import { requireWorkspaceOwner, workspaceRole } from "@/lib/workspace";
 import { requireProjectContext } from "@/lib/project-context";
 
 type MutationBody = {
@@ -49,7 +49,7 @@ async function teamPayload(
       expiresAt: invite.expires_at,
       createdAt: invite.created_at,
     })),
-    memberLimit: context.billing?.memberLimit ?? 5,
+    memberLimit: context.limits?.memberLimit ?? 5,
   };
 }
 
@@ -60,7 +60,6 @@ export async function GET(request: Request) {
     const context = await requireProjectContext(request, projectID, {
       bucket: "team:read",
       maximum: 120,
-      requireEntitlement: false,
     });
     return Response.json(await teamPayload(context));
   } catch (error) {
@@ -106,7 +105,6 @@ export async function DELETE(request: Request) {
     const context = await requireProjectContext(request, body.projectId, {
       bucket: "team:remove",
       maximum: 30,
-      requireEntitlement: false,
     });
     const workspaceID = context.project.workspace_id;
     await requireWorkspaceOwner(context.admin, workspaceID, context.user.id);

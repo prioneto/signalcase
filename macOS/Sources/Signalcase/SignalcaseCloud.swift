@@ -108,22 +108,6 @@ struct CloudTeam: Codable {
     let memberLimit: Int
 }
 
-struct CloudBillingState: Codable {
-    let configured: Bool
-    let enforcementEnabled: Bool
-    let access: Bool
-    let plan: String
-    let status: String
-    let provider: String
-    let trialEndsAt: String?
-    let currentPeriodEndsAt: String?
-    let cancelAtPeriodEnd: Bool
-    let memberLimit: Int
-    let projectLimit: Int
-    let eventRetentionDays: Int
-    let canManage: Bool
-}
-
 private struct CloudProjectEnvelope: Codable { let project: CloudProject }
 private struct CloudProjectsEnvelope: Codable { let projects: [CloudProject] }
 private struct CloudCasesEnvelope: Codable { let cases: [SignalCase] }
@@ -175,7 +159,6 @@ private struct CloudInvitationCreated: Codable {
     struct Invitation: Codable { let id: UUID; let email: String; let role: String; let expiresAt: String; let url: URL }
     let invitation: Invitation
 }
-private struct BillingURLEnvelope: Codable { let url: URL }
 private struct DeleteEnvelope: Codable { let deleted: Bool?; let leftWorkspace: Bool?; let revoked: Bool? }
 private struct SupabaseProjectsEnvelope: Codable { let projects: [SupabaseProjectOption] }
 private struct SupabaseSelectionEnvelope: Codable {
@@ -398,32 +381,6 @@ final class SignalcaseCloud {
             body: CloudTeamMutation(projectID: projectID, userID: userID, role: nil)
         )
         return try? makeDecoder().decode(CloudTeam.self, from: data)
-    }
-
-    func billing(projectID: UUID) async throws -> CloudBillingState {
-        try await request(
-            path: "/api/billing/status?projectId=\(projectID.uuidString)",
-            method: "GET",
-            body: Optional<[String: String]>.none
-        )
-    }
-
-    func checkoutURL(projectID: UUID) async throws -> URL {
-        let envelope: BillingURLEnvelope = try await request(
-            path: "/api/billing/checkout",
-            method: "POST",
-            body: ["projectId": projectID.uuidString]
-        )
-        return envelope.url
-    }
-
-    func billingPortalURL(projectID: UUID) async throws -> URL {
-        let envelope: BillingURLEnvelope = try await request(
-            path: "/api/billing/portal",
-            method: "POST",
-            body: ["projectId": projectID.uuidString]
-        )
-        return envelope.url
     }
 
     func deleteProject(projectID: UUID) async throws {

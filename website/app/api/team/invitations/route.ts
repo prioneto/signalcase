@@ -1,5 +1,5 @@
 import { APIError, jsonError } from "@/lib/api-auth";
-import { publicSiteURL, requireWorkspaceOwner, requireWorkspaceEntitlement } from "@/lib/billing";
+import { publicSiteURL, requireWorkspaceOwner, workspaceLimits } from "@/lib/workspace";
 import { requireProjectContext } from "@/lib/project-context";
 import { invitationToken, invitationTokenHash, normalizedEmail } from "@/lib/team";
 
@@ -23,7 +23,7 @@ export async function POST(request: Request) {
     });
     const workspaceID = context.project.workspace_id;
     await requireWorkspaceOwner(context.admin, workspaceID, context.user.id);
-    const billing = await requireWorkspaceEntitlement(context.admin, workspaceID, "owner");
+    const limits = await workspaceLimits(context.admin, workspaceID);
     const { data: users } = await context.admin.auth.admin.listUsers({ page: 1, perPage: 1_000 });
     const existingUser = users.users.find((user) => user.email?.toLowerCase() === email);
     if (existingUser) {
@@ -43,7 +43,7 @@ export async function POST(request: Request) {
       invitation_expires_at: expiresAt,
     });
     if (error?.message.toLowerCase().includes("limit")) {
-      throw new APIError(`This plan includes ${billing.memberLimit} team members.`, 409);
+      throw new APIError(`This workspace allows up to ${limits.memberLimit} team members.`, 409);
     }
     if (error || !invitation) throw error ?? new Error("Invitation was not created.");
     return Response.json({
@@ -67,7 +67,7 @@ export async function DELETE(request: Request) {
     const context = await requireProjectContext(request, body.projectId, {
       bucket: "team:invite:revoke",
       maximum: 30,
-      requireEntitlement: false,
+      includeLimits: false,
     });
     await requireWorkspaceOwner(context.admin, context.project.workspace_id, context.user.id);
     const { error } = await context.admin.from("invitations").update({ revoked_at: new Date().toISOString() })

@@ -42,7 +42,6 @@ final class AppModel: ObservableObject {
     @Published var productionApplicationEndpoint = ""
     @Published var productionApplicationAuthorization = ""
     @Published var cloudTeam: CloudTeam?
-    @Published var cloudBilling: CloudBillingState?
     @Published var isCloudBusy = false
     @Published var isRestoringCloudSession = true
     @Published var availableRelease: MacReleaseInfo?
@@ -824,7 +823,7 @@ final class AppModel: ObservableObject {
             await refreshGitHubConnection()
             await refreshApplicationConnection()
             await refreshSharedCases()
-            await refreshTeamAndBilling()
+            await refreshTeam()
         }
         restartCollaborationRefresh()
         showToast("Switched to \(project.name)")
@@ -843,7 +842,7 @@ final class AppModel: ObservableObject {
             await refreshGitHubConnection()
             await refreshApplicationConnection()
             await refreshSharedCases()
-            await refreshTeamAndBilling()
+            await refreshTeam()
             restartCollaborationRefresh()
             showToast("Signed in to Signalcase")
         } catch {
@@ -861,7 +860,6 @@ final class AppModel: ObservableObject {
         isCloudAuthenticated = false
         cloudProjects = []
         cloudTeam = nil
-        cloudBilling = nil
         collaborationRefreshTask?.cancel()
         collaborationRefreshTask = nil
         supabaseProjects = []
@@ -878,17 +876,13 @@ final class AppModel: ObservableObject {
         persist()
     }
 
-    func refreshTeamAndBilling() async {
+    func refreshTeam() async {
         guard let cloudProjectID, isSignedIn else {
             cloudTeam = nil
-            cloudBilling = nil
             return
         }
         do {
-            async let team = cloud.team(projectID: cloudProjectID)
-            async let billing = cloud.billing(projectID: cloudProjectID)
-            cloudTeam = try await team
-            cloudBilling = try await billing
+            cloudTeam = try await cloud.team(projectID: cloudProjectID)
         } catch {
             showToast(SecretRedactor.redact(error.localizedDescription))
         }
@@ -902,7 +896,7 @@ final class AppModel: ObservableObject {
             let url = try await cloud.invite(projectID: cloudProjectID, email: email, role: role)
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(url.absoluteString, forType: .string)
-            await refreshTeamAndBilling()
+            await refreshTeam()
             showToast("Invitation link copied")
             return true
         } catch {
@@ -915,7 +909,7 @@ final class AppModel: ObservableObject {
         guard let cloudProjectID else { return }
         do {
             try await cloud.revokeInvitation(projectID: cloudProjectID, invitationID: invitation.id)
-            await refreshTeamAndBilling()
+            await refreshTeam()
             showToast("Invitation revoked")
         } catch { showToast(SecretRedactor.redact(error.localizedDescription)) }
     }
@@ -935,18 +929,6 @@ final class AppModel: ObservableObject {
             if member.isCurrentUser { await refreshCloudProjects() }
             showToast(member.isCurrentUser ? "Left workspace" : "Member removed")
         } catch { showToast(SecretRedactor.redact(error.localizedDescription)) }
-    }
-
-    func openCheckout() async {
-        guard let cloudProjectID else { return }
-        do { try cloud.openExternalURL(try await cloud.checkoutURL(projectID: cloudProjectID)) }
-        catch { showToast(SecretRedactor.redact(error.localizedDescription)) }
-    }
-
-    func openBillingPortal() async {
-        guard let cloudProjectID else { return }
-        do { try cloud.openExternalURL(try await cloud.billingPortalURL(projectID: cloudProjectID)) }
-        catch { showToast(SecretRedactor.redact(error.localizedDescription)) }
     }
 
     func deleteCurrentProject() async -> Bool {
@@ -975,7 +957,6 @@ final class AppModel: ObservableObject {
             cloudProjects = []
             cloudProjectID = nil
             cloudTeam = nil
-            cloudBilling = nil
             showToast("Account deleted")
             return true
         } catch {
@@ -1547,7 +1528,7 @@ final class AppModel: ObservableObject {
         await refreshGitHubConnection()
         await refreshApplicationConnection()
         await refreshSharedCases()
-        await refreshTeamAndBilling()
+        await refreshTeam()
         restartCollaborationRefresh()
         await flushPendingDiagnostics()
         await checkForUpdates(manual: false)

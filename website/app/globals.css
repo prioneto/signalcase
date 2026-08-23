@@ -1267,8 +1267,6 @@ footer > span {
 .cloud-metrics div + div { border-left: 1px solid var(--line); }
 .cloud-metrics strong { font-size: 16px; }
 .cloud-metrics span { color: var(--muted); font-size: 10px; }
-.cloud-billing-actions { display: flex; margin-top: 14px; justify-content: flex-end; }
-.cloud-billing-actions .auth-button { min-height: 42px; }
 
 .cloud-card,
 .cloud-empty {

@@ -22,7 +22,6 @@ export default function PrivacyPage() {
           <li><strong>Connected sources:</strong> OAuth tokens for Supabase and a GitHub App installation you approve. Tokens are encrypted at rest on our servers and used only for the read-only scopes shown during connection. Render credentials stay in your Mac&apos;s Keychain unless you choose to use another supported flow.</li>
           <li><strong>Log events:</strong> the events retrieved from sources you connect (or send to an Application Logs endpoint), including timestamps, messages, request IDs, and technical context such as release versions.</li>
           <li><strong>Cases:</strong> the grouped cases, statuses, and notes your team creates.</li>
-          <li><strong>Billing:</strong> subscription state handled by Stripe. We never see or store full card numbers.</li>
           <li><strong>Diagnostics:</strong> optional error reports from the app and server, containing an error message, short stack trace, and version information. They never include your logs or provider credentials.</li>
           <li><strong>Feedback:</strong> what you voluntarily type into the feedback form, plus the app details you choose to include.</li>
         </ul>
@@ -31,20 +30,20 @@ export default function PrivacyPage() {
       <LegalSection heading="2. Why we process it">
         <p>
           To provide the Service you signed up for (authenticating you, syncing cases between your Macs,
-          reading connected sources), to bill subscriptions, to keep the Service secure and reliable
-          (rate limits, abuse prevention, error monitoring), and to answer support requests. These purposes
-          correspond to performance of a contract, legitimate interests in operating a secure service, and —
-          where required, such as for optional diagnostics — your consent.
+          reading connected sources), to keep the Service secure and reliable (rate limits, abuse
+          prevention, error monitoring), and to answer support requests. These purposes correspond to
+          performance of a contract, legitimate interests in operating a secure service, and — where
+          required, such as for optional diagnostics — your consent. Signalcase is free and shows no ads;
+          we do not build advertising profiles.
         </p>
       </LegalSection>
 
       <LegalSection heading="3. Retention">
         <p>
           Log events are kept for 30 days per workspace by default and then deleted automatically. Cases
-          are kept until your team deletes them or the workspace ends. Error reports and billing records
-          are kept for up to 90 days (billing records as long as required by tax law). Deleting a project,
-          leaving a workspace, or deleting your account removes associated data; deletion requests are
-          honored within 30 days.
+          are kept until your team deletes them or the workspace ends. Error reports are kept for up to 90
+          days. Deleting a project, leaving a workspace, or deleting your account removes associated data;
+          deletion requests are honored within 30 days.
         </p>
       </LegalSection>
 
@@ -52,10 +51,9 @@ export default function PrivacyPage() {
         <ul>
           <li><strong>Supabase</strong> — database, authentication, and storage of workspace data.</li>
           <li><strong>Vercel</strong> — hosting of the Signalcase server and website.</li>
-          <li><strong>Stripe</strong> — subscription payments and customer portal.</li>
           <li><strong>GitHub</strong> — sign-in identity and repository evidence you connect.</li>
         </ul>
-        <p>We do not sell personal data and do not share it with advertisers.</p>
+        <p>We do not sell personal data, show advertising, or share data with advertisers.</p>
       </LegalSection>
 
       <LegalSection heading="5. Your rights">

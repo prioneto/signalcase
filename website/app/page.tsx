@@ -237,20 +237,20 @@ export default function Home() {
 
       <section className="pricing shell" id="pricing">
         <div>
-          <span>03 / PRICING</span>
-          <h2>One small-team plan.</h2>
-          <p>Start with every production feature for 14 days. No card is required until you subscribe.</p>
+          <span>03 / GET SIGNALCASE</span>
+          <h2>Free. For every small team.</h2>
+          <p>Download the app, connect your logs, and start triaging with your whole team. No tiers, no seats to buy, no card — ever.</p>
         </div>
         <article>
-          <small>SIGNALCASE TEAM</small>
-          <strong>{process.env.NEXT_PUBLIC_TEAM_PRICE_LABEL ?? "Price announced at launch"}</strong>
+          <small>SIGNALCASE FOR MACOS</small>
+          <strong>Free</strong>
           <ul>
-            <li>Up to 5 teammates</li>
-            <li>3 shared projects</li>
-            <li>30 days of event history</li>
+            <li>Every production feature included</li>
+            <li>Up to 5 teammates per workspace</li>
+            <li>3 shared projects · 30 days of event history</li>
             <li>Supabase, Render, GitHub and application logs</li>
           </ul>
-          <a className="primary" href="/sign-in">Start 14-day trial <span>→</span></a>
+          <a className="primary" href={downloadHref}>Download for macOS <span>↓</span></a>
         </article>
       </section>
 
@@ -260,7 +260,7 @@ export default function Home() {
         <a className="primary" href="#sources">See supported sources <span>→</span></a>
       </section>
 
-      <footer className="shell" id="footer"><div className="brand"><span className="brand-mark">⌁</span><span>SIGNALCASE</span></div><p>Native bug evidence for small development teams.</p><nav className="footer-links"><a href="/support">Support</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/refunds">Refunds</a></nav><span>MACOS · 2026</span></footer>
+      <footer className="shell" id="footer"><div className="brand"><span className="brand-mark">⌁</span><span>SIGNALCASE</span></div><p>Native bug evidence for small development teams.</p><nav className="footer-links"><a href="/support">Support</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a></nav><span>MACOS · FREE · 2026</span></footer>
     </main>
   );
 }
@@ -272,3 +272,5 @@ function SourceBadge({ source }: { source: Source }) {
 function SourcePills({ sources }: { sources: Source[] }) {
   return <span className="source-pills">{sources.map((source) => <SourceBadge key={source} source={source} />)}</span>;
 }
+
+const downloadHref = process.env.NEXT_PUBLIC_MAC_DOWNLOAD_URL || "/sign-in";

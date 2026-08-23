@@ -1,9 +1,9 @@
 // Central place for customer-facing company details shown on legal and
-// support pages. Replace these values before selling subscriptions.
+// support pages. Replace the placeholders with real values before launch.
 export const site = {
   name: "Signalcase",
-  // The legal entity that sells the subscription. Must be a real registered
-  // business name before launch.
+  // The legal entity operating Signalcase. Fill in a real registered
+  // business name (or your own name) before launch.
   legalEntity: "Signalcase",
   supportEmail: "support@signalcase.app",
   privacyEmail: "privacy@signalcase.app",

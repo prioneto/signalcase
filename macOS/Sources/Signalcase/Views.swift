@@ -924,8 +924,6 @@ private struct SettingsSheet: View {
                     GeneralSettingsView()
                 case .team:
                     TeamSettingsView()
-                case .billing:
-                    BillingSettingsView()
                 case .connections:
                     ConnectionsSettingsView()
                 case .activity:
@@ -1707,7 +1705,7 @@ private struct TeamSettingsView: View {
             .frame(maxWidth: 680, alignment: .leading)
         }
         .background(SignalTheme.background)
-        .task { await model.refreshTeamAndBilling() }
+        .task { await model.refreshTeam() }
     }
 
     private func memberRow(_ member: CloudTeamMember) -> some View {
@@ -1745,84 +1743,6 @@ private struct TeamSettingsView: View {
     }
 
     private var divider: some View { Rectangle().fill(SignalTheme.border).frame(height: 1).padding(.leading, 56) }
-}
-
-private struct BillingSettingsView: View {
-    @EnvironmentObject private var model: AppModel
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("BILLING").sectionLabel()
-                    Text("Signalcase Team")
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
-                    Text("One plan for your shared workspace.")
-                        .font(.system(size: 10.5)).foregroundStyle(SignalTheme.muted)
-                }
-
-                if let billing = model.cloudBilling {
-                    VStack(alignment: .leading, spacing: 18) {
-                        HStack(alignment: .top) {
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text(billing.status.replacingOccurrences(of: "_", with: " ").capitalized)
-                                    .font(.system(size: 18, weight: .bold, design: .rounded))
-                                Text(billing.access ? "Your workspace is active" : "Subscribe to keep syncing new evidence")
-                                    .font(.system(size: 10.5)).foregroundStyle(SignalTheme.muted)
-                            }
-                            Spacer()
-                            Circle().fill(billing.access ? SignalTheme.lime : SignalTheme.orange).frame(width: 9, height: 9)
-                        }
-
-                        HStack(spacing: 0) {
-                            limit("Members", "\(billing.memberLimit)")
-                            limit("Projects", "\(billing.projectLimit)")
-                            limit("Event history", "\(billing.eventRetentionDays) days")
-                        }
-
-                        if billing.canManage {
-                            HStack {
-                                if billing.provider == "stripe" {
-                                    Button("Manage subscription") { Task { await model.openBillingPortal() } }
-                                        .buttonStyle(PrimaryButtonStyle())
-                                } else {
-                                    Button(billing.configured ? "Subscribe" : "Payments coming soon") {
-                                        Task { await model.openCheckout() }
-                                    }
-                                    .buttonStyle(PrimaryButtonStyle())
-                                    .disabled(!billing.configured)
-                                }
-                                Button("Refresh") { Task { await model.refreshTeamAndBilling() } }
-                                    .buttonStyle(QuietButtonStyle())
-                            }
-                        } else {
-                            Text("A workspace owner manages the subscription.")
-                                .font(.system(size: 10)).foregroundStyle(SignalTheme.muted)
-                        }
-                    }
-                    .padding(20)
-                    .settingsSurface()
-                } else if model.cloudProjectID == nil {
-                    Text("Choose a project to see its workspace plan.")
-                        .font(.system(size: 11)).foregroundStyle(SignalTheme.muted)
-                } else {
-                    ProgressView().controlSize(.small)
-                }
-            }
-            .padding(26)
-            .frame(maxWidth: 680, alignment: .leading)
-        }
-        .background(SignalTheme.background)
-        .task { await model.refreshTeamAndBilling() }
-    }
-
-    private func limit(_ title: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(value).font(.system(size: 12, weight: .semibold))
-            Text(title).font(.system(size: 9)).foregroundStyle(SignalTheme.muted)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
 }
 
 private struct ConnectionsSettingsView: View {

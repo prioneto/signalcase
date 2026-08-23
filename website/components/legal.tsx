@@ -5,7 +5,6 @@ export const legalNavLinks = [
   { href: "/support", label: "Support" },
   { href: "/terms", label: "Terms" },
   { href: "/privacy", label: "Privacy" },
-  { href: "/refunds", label: "Refunds" },
 ];
 
 export function LegalShell({

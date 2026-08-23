@@ -1,11 +1,11 @@
 import { requireProjectAccess } from "@/lib/api-auth";
-import { requireWorkspaceEntitlement, workspaceRole } from "@/lib/billing";
+import { workspaceLimits, workspaceRole, type WorkspaceLimits } from "@/lib/workspace";
 import { enforceRateLimit } from "@/lib/rate-limit";
 
 export async function requireProjectContext(
   request: Request,
   projectID: string,
-  input: { bucket: string; maximum?: number; requireEntitlement?: boolean },
+  input: { bucket: string; maximum?: number; includeLimits?: boolean },
 ) {
   const context = await requireProjectAccess(request, projectID);
   const role = await workspaceRole(context.admin, context.project.workspace_id, context.user.id);
@@ -15,8 +15,8 @@ export async function requireProjectContext(
     maximum: input.maximum ?? 120,
     windowSeconds: 60,
   });
-  const billing = input.requireEntitlement === false
+  const limits: WorkspaceLimits | null = input.includeLimits === false
     ? null
-    : await requireWorkspaceEntitlement(context.admin, context.project.workspace_id, role);
-  return { ...context, role, billing };
+    : await workspaceLimits(context.admin, context.project.workspace_id);
+  return { ...context, role, limits };
 }
