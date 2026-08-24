@@ -1,14 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type Source = "SB" | "RD" | "APP";
+type AppWindow = "signalcase" | "workflow" | "sources" | "about";
 
 type ProductCase = {
   id: string;
   title: string;
-  status: string;
-  severity: string;
+  status: "NEW" | "ACTIVE";
+  severity: "CRITICAL" | "HIGH";
   occurrences: number;
   users: number;
   sources: Source[];
@@ -18,7 +19,7 @@ type ProductCase = {
   code: string;
 };
 
-const productPreviewCases: ProductCase[] = [
+const cases: ProductCase[] = [
   {
     id: "SIG-104",
     title: "Profile writes fail after the latest deploy",
@@ -27,18 +28,16 @@ const productPreviewCases: ProductCase[] = [
     occurrences: 12,
     users: 7,
     sources: ["RD", "APP", "SB"],
-    summary: "The new release reaches production, then Supabase begins rejecting profile writes with a missing customer ID.",
+    summary: "The release reaches production, then Supabase rejects profile writes with a missing customer ID.",
     findings: [
       { tone: "good", title: "Deployment completed", body: "Render marked release 9f3a1b live before the first failure." },
       { tone: "bad", title: "Database write failed", body: "Supabase rejected a null customer_id in every matching request." },
-      { tone: "warn", title: "Started after deploy 9f3a1b", body: "The first matching failure appeared seven minutes after release." },
+      { tone: "warn", title: "Started after deploy 9f3a1b", body: "The first failure appeared seven minutes after release." },
     ],
     events: [
       { time: "14:28:04", source: "RD", title: "Deploy 9f3a1b became live", detail: "fitref-web · production" },
-      { time: "14:35:22", source: "RD", title: "POST /api/profile returned 500", detail: "fitref-web · req_91d" },
-      { time: "14:35:23", source: "APP", title: "ProfileWriteError", detail: "Missing customer ID · req_91d" },
-      { time: "14:35:24", source: "SB", title: "Profile update rejected", detail: "23502 · null value in customer_id · req_91d" },
-      { time: "14:35:25", source: "RD", title: "Request failed", detail: "DatabaseError · req_91d" },
+      { time: "14:35:22", source: "APP", title: "ProfileWriteError", detail: "Missing customer ID · req_91d" },
+      { time: "14:35:24", source: "SB", title: "Profile update rejected", detail: "23502 · null customer_id" },
     ],
     code: "app/api/profile/route.ts:184",
   },
@@ -50,11 +49,11 @@ const productPreviewCases: ProductCase[] = [
     occurrences: 8,
     users: 8,
     sources: ["RD", "SB"],
-    summary: "A Render worker repeatedly times out while Supabase is processing the same large import query.",
+    summary: "A Render worker times out while Supabase is processing the same large import query.",
     findings: [
       { tone: "good", title: "Worker starts normally", body: "Render starts the scheduled job with the expected release." },
-      { tone: "bad", title: "Database query runs too long", body: "Supabase records the same statement until the worker timeout is reached." },
-      { tone: "warn", title: "The failure repeats nightly", body: "Three consecutive scheduled runs have the same fingerprint." },
+      { tone: "bad", title: "Query runs too long", body: "Supabase records the statement until the worker timeout is reached." },
+      { tone: "warn", title: "The failure repeats nightly", body: "Three scheduled runs share the same fingerprint." },
     ],
     events: [
       { time: "02:00:00", source: "RD", title: "Scheduled import started", detail: "analytics-worker · release 28cc04" },
@@ -71,198 +70,248 @@ const productPreviewCases: ProductCase[] = [
     occurrences: 31,
     users: 14,
     sources: ["SB", "RD"],
-    summary: "Invited members can authenticate, but their first profile request is rejected by RLS.",
+    summary: "Invited members authenticate, but their first profile request is rejected by RLS.",
     findings: [
       { tone: "good", title: "Authentication works", body: "Every affected request follows a successful login." },
-      { tone: "bad", title: "One RLS policy rejects members", body: "Owners succeed while role=member receives SQLSTATE 42501." },
-      { tone: "warn", title: "API returns the same error", body: "Render records a 403 for each rejected Supabase request." },
+      { tone: "bad", title: "RLS rejects members", body: "Owners succeed while role=member receives SQLSTATE 42501." },
+      { tone: "warn", title: "API returns the same error", body: "Render records a 403 for each rejected request." },
     ],
     events: [
       { time: "09:17:21", source: "SB", title: "Auth login succeeded", detail: "email provider · usr_101" },
       { time: "09:17:23", source: "SB", title: "RLS policy denied profile read", detail: "42501 · permission denied" },
-      { time: "09:17:24", source: "RD", title: "GET /api/profile returned 403", detail: "14 affected users · release 28cc04" },
+      { time: "09:17:24", source: "RD", title: "GET /api/profile returned 403", detail: "14 affected users" },
     ],
     code: "supabase/migrations/team_profile_policy.sql:23",
   },
 ];
 
-const sourceName: Record<Source, string> = {
-  SB: "Supabase",
-  RD: "Render",
-  APP: "Application",
-};
+const sourceName: Record<Source, string> = { SB: "Supabase", RD: "Render", APP: "Application" };
+const downloadHref = process.env.NEXT_PUBLIC_MAC_DOWNLOAD_URL || "/sign-in";
 
 export default function Home() {
-  const cases = productPreviewCases;
-  const [selectedID, setSelectedID] = useState(productPreviewCases[0].id);
+  const [activeWindow, setActiveWindow] = useState<AppWindow | null>("signalcase");
+  const [selectedID, setSelectedID] = useState(cases[0].id);
+  const [maximized, setMaximized] = useState(false);
+  const [clock, setClock] = useState("MON · 12:05");
   const selected = cases.find((item) => item.id === selectedID) ?? cases[0];
 
+  useEffect(() => {
+    const updateClock = () => {
+      const now = new Date();
+      const day = now.toLocaleDateString("en", { weekday: "short" }).toUpperCase();
+      const time = now.toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit", hour12: false });
+      setClock(`${day} · ${time}`);
+    };
+    updateClock();
+    const timer = window.setInterval(updateClock, 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const openWindow = (app: AppWindow) => {
+    setActiveWindow(app);
+    setMaximized(false);
+  };
+
   return (
-    <main>
-      <nav className="nav shell">
-        <a className="brand" href="#top" aria-label="Signalcase home">
-          <span className="brand-mark" aria-hidden="true">⌁</span>
-          <span>SIGNALCASE</span>
+    <main className="os-desktop">
+      <h1 className="sr-only">Signalcase — Native bug evidence for small teams</h1>
+
+      <header className="os-menu-bar">
+        <button className="os-menu-brand" onClick={() => openWindow("signalcase")} aria-label="Open Signalcase">
+          <span className="os-menu-mark">⌁</span>
+          <strong>Signalcase</strong>
+        </button>
+        <nav className="os-menu-links" aria-label="Application menu">
+          <button onClick={() => openWindow("about")}>About</button>
+          <button onClick={() => openWindow("workflow")}>Workflow</button>
+          <button onClick={() => openWindow("sources")}>Sources</button>
+        </nav>
+        <div className="os-status">
+          <span className="os-live"><i /> SYSTEMS ONLINE</span>
+          <span aria-hidden="true">◒</span>
+          <span>{clock}</span>
+        </div>
+      </header>
+
+      <div className="os-wallpaper" aria-hidden="true">
+        <span className="wallpaper-ring ring-a" />
+        <span className="wallpaper-ring ring-b" />
+        <span className="wallpaper-signal">⌁</span>
+        <p>EVERY TRACE<br />ONE CASE</p>
+      </div>
+
+      <aside className="desktop-shortcuts" aria-label="Desktop applications">
+        <DesktopShortcut label="Signalcase" icon="⌁" tone="lime" onOpen={() => openWindow("signalcase")} />
+        <DesktopShortcut label="Workflow" icon="↗" tone="blue" onOpen={() => openWindow("workflow")} />
+        <DesktopShortcut label="Sources" icon="⌘" tone="purple" onOpen={() => openWindow("sources")} />
+        <a className="desktop-shortcut" href={downloadHref}>
+          <span className="desktop-icon icon-orange">↓</span>
+          <span>Download</span>
         </a>
-        <div className="nav-links">
-          <a href="#workflow">Workflow</a>
-          <a href="#sources">Sources</a>
-          <a href="#preview">Product</a>
-          <a href="#pricing">Pricing</a>
-        </div>
-        <a className="nav-cta" href="#preview">See the product <span>↘</span></a>
+      </aside>
+
+      <section className={`os-stage ${maximized ? "is-maximized" : ""}`} aria-live="polite">
+        {activeWindow === "signalcase" && (
+          <WindowFrame title="Signalcase — fitref" onClose={() => setActiveWindow(null)} onZoom={() => setMaximized((value) => !value)}>
+            <ProductApp selected={selected} selectedID={selectedID} onSelect={setSelectedID} onOpenAbout={() => openWindow("about")} />
+          </WindowFrame>
+        )}
+        {activeWindow === "workflow" && (
+          <WindowFrame title="Workflow" onClose={() => setActiveWindow(null)} onZoom={() => setMaximized((value) => !value)} compact>
+            <InfoWindow eyebrow="01 / WORKFLOW" title="From noisy services to one usable case." intro="Signalcase keeps the few events that prove what happened and turns them into a handoff your developer can use.">
+              <div className="os-step-grid">
+                <InfoCard number="01" icon="⌁" title="Collect" text="Read recent deploys, errors, database events, and webhook deliveries from your stack." />
+                <InfoCard number="02" icon="⌘" title="Connect" text="Match request IDs, releases, users, fingerprints, and timestamps across services." />
+                <InfoCard number="03" icon="↗" title="Hand off" text="Give the developer a compact timeline, relevant code, impact, and a repeatable test." />
+              </div>
+            </InfoWindow>
+          </WindowFrame>
+        )}
+        {activeWindow === "sources" && (
+          <WindowFrame title="Connected Sources" onClose={() => setActiveWindow(null)} onZoom={() => setMaximized((value) => !value)} compact>
+            <InfoWindow eyebrow="02 / SOURCES" title="One failure. Every trace." intro="Start with read-only connections. Signalcase brings the evidence together without asking your team to live in another dashboard.">
+              <div className="os-source-grid">
+                <SourceCard source="SB" title="Supabase" text="Auth, Postgres, RLS, Storage and Edge Functions." />
+                <SourceCard source="RD" title="Render" text="Deploys, restarts, workers and service logs." />
+                <SourceCard source="APP" title="Application" text="Errors, routes, releases, users and request IDs." />
+              </div>
+            </InfoWindow>
+          </WindowFrame>
+        )}
+        {activeWindow === "about" && (
+          <WindowFrame title="About Signalcase" onClose={() => setActiveWindow(null)} onZoom={() => setMaximized((value) => !value)} compact>
+            <div className="about-window">
+              <div className="about-mark">⌁</div>
+              <span className="about-version">SIGNALCASE · MACOS</span>
+              <h2>Your logs already know <em>what broke.</em></h2>
+              <p>Signalcase connects the events around a failure and hands developers one compact, reproducible case—without searching separate dashboards.</p>
+              <div className="about-actions">
+                <button className="os-primary" onClick={() => openWindow("signalcase")}>Launch the demo <span>→</span></button>
+                <a className="os-secondary" href={downloadHref}>Download for macOS</a>
+              </div>
+              <div className="about-proof"><span>NO REQUIRED AI</span><i /><span>READ-ONLY CONNECTIONS</span><i /><span>FREE FOR SMALL TEAMS</span></div>
+            </div>
+          </WindowFrame>
+        )}
+      </section>
+
+      <nav className="os-dock" aria-label="Dock">
+        <DockButton label="Signalcase" icon="⌁" tone="lime" active={activeWindow === "signalcase"} onOpen={() => openWindow("signalcase")} />
+        <DockButton label="Workflow" icon="↗" tone="blue" active={activeWindow === "workflow"} onOpen={() => openWindow("workflow")} />
+        <DockButton label="Sources" icon="⌘" tone="purple" active={activeWindow === "sources"} onOpen={() => openWindow("sources")} />
+        <span className="dock-divider" />
+        <DockButton label="About" icon="i" tone="dark" active={activeWindow === "about"} onOpen={() => openWindow("about")} />
+        <a className="dock-button" href={downloadHref} aria-label="Download Signalcase" title="Download">
+          <span className="dock-icon icon-orange">↓</span>
+        </a>
       </nav>
+    </main>
+  );
+}
 
-      <section className="hero shell" id="top">
-        <div className="hero-copy">
-          <div className="eyebrow"><span className="live-dot" /> NATIVE BUG EVIDENCE FOR SMALL TEAMS</div>
-          <h1>Your logs already know <em>what broke.</em></h1>
-          <p>Signalcase connects the events around a failure and hands developers one compact, reproducible case—without searching separate dashboards.</p>
-          <div className="hero-actions">
-            <a className="primary" href="#preview">See Signalcase <span>→</span></a>
-            <a className="secondary" href="#workflow">See how it works</a>
-          </div>
-          <div className="hero-proof">
-            <span>NO REQUIRED AI</span><i />
-            <span>READ-ONLY CONNECTIONS</span><i />
-            <span>MAC NATIVE</span>
-          </div>
+function WindowFrame({ title, children, onClose, onZoom, compact = false }: { title: string; children: React.ReactNode; onClose: () => void; onZoom: () => void; compact?: boolean }) {
+  return (
+    <div className={`os-window ${compact ? "os-window-compact" : ""}`} role="dialog" aria-label={title}>
+      <div className="os-titlebar">
+        <div className="os-traffic">
+          <button className="traffic-close" onClick={onClose} aria-label="Close window" />
+          <button className="traffic-min" onClick={onClose} aria-label="Minimize window" />
+          <button className="traffic-zoom" onClick={onZoom} aria-label="Zoom window" />
         </div>
+        <strong>{title}</strong>
+        <span className="titlebar-state"><i /> LIVE</span>
+      </div>
+      <div className="os-window-content">{children}</div>
+      <span className="window-resize" aria-hidden="true" />
+    </div>
+  );
+}
 
-        <div className="signal-orbit" aria-hidden="true">
-          <div className="orbit orbit-one" />
-          <div className="orbit orbit-two" />
-          <div className="center-signal">
-            <span className="pulse-line">⌁</span>
-            <small>4 EVENTS</small>
-            <strong>1 CASE</strong>
-          </div>
-          <span className="orbit-node node-one source-sb">SB</span>
-          <span className="orbit-node node-three source-rd">RD</span>
-          <span className="orbit-node node-four source-app">APP</span>
+function ProductApp({ selected, selectedID, onSelect, onOpenAbout }: { selected: ProductCase; selectedID: string; onSelect: (id: string) => void; onOpenAbout: () => void }) {
+  return (
+    <div className="demo-app">
+      <aside className="demo-sidebar">
+        <div className="demo-brand"><b>⌁</b><span>SIGNALCASE</span></div>
+        <button className="sync-button"><span>⌁</span> Sync recent logs</button>
+        <small>INBOX</small>
+        <button className="demo-nav active"><span>All cases</span><b>{cases.length}</b></button>
+        <button className="demo-nav"><span>New</span><b>1</b></button>
+        <button className="demo-nav"><span>Active</span><b>2</b></button>
+        <div className="sidebar-bottom">
+          <small>PROJECT</small>
+          <div className="project-switcher"><span>▰</span><div><b>fitref</b><p>3 connected sources</p></div></div>
+          <button className="about-link" onClick={onOpenAbout}>What is Signalcase? <span>↗</span></button>
         </div>
-      </section>
+      </aside>
 
-      <section className="preview-shell shell" id="preview">
-        <div className="window-bar">
-          <div className="traffic"><span /><span /><span /></div>
-          <div className="window-title">Signalcase · fitref</div>
-          <span className="capture-small">⌁ Sync recent logs</span>
-        </div>
-        <div className="product">
-          <aside className="product-side">
-            <div className="mini-brand"><b>⌁</b><span>SIGNALCASE</span></div>
-            <span className="side-capture">＋ Sync logs</span>
-            <small>INBOX</small>
-            <button className="side-nav active"><span>All cases</span><b>{cases.length}</b></button>
-            <button className="side-nav"><span>New</span><b>{cases.filter((item) => item.status === "NEW").length}</b></button>
-            <button className="side-nav"><span>Active</span><b>{cases.filter((item) => item.status === "ACTIVE").length}</b></button>
-            <button className="side-nav"><span>Resolved</span><b>{cases.filter((item) => item.status === "RESOLVED").length}</b></button>
-            <div className="side-bottom">
-              <small>PROJECT</small>
-              <div className="project-card"><span>▰</span><div><b>fitref</b><p>{cases.length} cases</p></div></div>
-            </div>
-          </aside>
-
-          <section className="case-list">
-            <header><div><h3>Grouped problems</h3><p>{cases.length} cases from connected logs</p></div><span className="status-light" /></header>
-            <div className="search">⌕ <span>Search errors, IDs, files…</span></div>
-            <div className="rows">
-              {cases.map((item) => (
-                <button className={`case-row ${selected.id === item.id ? "selected" : ""}`} key={item.id} onClick={() => setSelectedID(item.id)}>
-                  <div className="case-meta"><span>{item.id}</span><time>{item.occurrences}×</time></div>
-                  <h4>{item.title}</h4>
-                  <div className="row-bottom"><b>{item.status}</b><span>{item.users} USERS</span><SourcePills sources={item.sources} /></div>
-                </button>
-              ))}
-            </div>
-          </section>
-
-          <section className="case-detail">
-            <header className="detail-top"><div><span>{selected.id}</span><i /> <b>{selected.status}</b></div><button>Copy packet</button></header>
-            <div className="detail-title">
-              <small>{selected.severity} · PRODUCTION</small>
-              <h2>{selected.title}</h2>
-              <p>{selected.summary}</p>
-            </div>
-            <div className="impact">
-              <div><small>OCCURRENCES</small><b>{selected.occurrences}</b></div>
-              <div><small>AFFECTED USERS</small><b>{selected.users}</b></div>
-              <div><small>SOURCES</small><SourcePills sources={selected.sources} /></div>
-            </div>
-            <div className="section-heading"><div><small>PROVEN FROM THE LOGS</small><p>No guesses. Every finding links to an event.</p></div><span>RULE-BASED</span></div>
-            <div className="findings">
-              {selected.findings.map((finding, index) => (
-                <div className="finding" key={finding.title}>
-                  <b className={finding.tone}>{String(index + 1).padStart(2, "0")}</b>
-                  <div><h5>{finding.title}</h5><p>{finding.body}</p></div>
-                  <span className={finding.tone}>{finding.tone === "good" ? "✓" : finding.tone === "bad" ? "!" : "◷"}</span>
-                </div>
-              ))}
-            </div>
-            <div className="section-heading timeline-heading"><div><small>UNIFIED TIMELINE</small></div><span>{selected.events.length} RELATED EVENTS</span></div>
-            <div className="timeline">
-              {selected.events.map((event) => (
-                <div className="event" key={`${event.time}-${event.title}`}>
-                  <time>{event.time}</time><SourceBadge source={event.source} /><div><h5>{event.title}</h5><p>{event.detail}</p></div><small>{sourceName[event.source]}</small>
-                </div>
-              ))}
-            </div>
-            <div className="code-line"><small>RELEVANT CODE</small><code>{selected.code}</code></div>
-          </section>
-        </div>
-      </section>
-
-      <section className="workflow shell" id="workflow">
-        <div className="section-intro">
-          <span>01 / WORKFLOW</span>
-          <h2>From noisy services to one usable case.</h2>
-          <p>The useful part is not collecting more logs. It is preserving the few events that prove what happened.</p>
-        </div>
-        <div className="steps">
-          <article><span>01</span><div className="step-icon">⌁</div><h3>Collect</h3><p>Read recent events, deploys, errors, and webhook deliveries from the tools already in your stack.</p></article>
-          <article><span>02</span><div className="step-icon">⌘</div><h3>Connect</h3><p>Match exact request IDs, event IDs, users, releases, fingerprints, and timestamps.</p></article>
-          <article><span>03</span><div className="step-icon">↗</div><h3>Hand off</h3><p>Give the developer a compact timeline, relevant code, impact, and repeatable test—not another dashboard.</p></article>
-        </div>
-      </section>
-
-      <section className="sources shell" id="sources">
-        <div className="source-copy"><span>02 / SOURCES</span><h2>One failure.<br />Every trace.</h2><p>Start with read-only integrations. Add an always-on webhook collector only when the team needs production capture while every Mac is asleep.</p></div>
-        <div className="source-grid">
-          {[{ code: "SB", name: "Supabase", text: "Auth, Postgres, RLS, Storage and Edge Functions" }, { code: "RD", name: "Render", text: "Deploys, restarts, workers and service logs" }, { code: "APP", name: "Application Logs", text: "Errors, routes, releases, users and request IDs from your code" }].map((source) => (
-            <article key={source.code}><SourceBadge source={source.code as Source} /><div><h3>{source.name}</h3><p>{source.text}</p></div><span>↗</span></article>
+      <section className="demo-cases">
+        <header><div><h2>Grouped problems</h2><p>{cases.length} cases from connected logs</p></div><span className="status-light" /></header>
+        <div className="demo-search">⌕ <span>Search cases…</span><kbd>⌘ K</kbd></div>
+        <div className="demo-case-rows">
+          {cases.map((item) => (
+            <button className={`demo-case ${selectedID === item.id ? "selected" : ""}`} key={item.id} onClick={() => onSelect(item.id)}>
+              <div className="demo-case-meta"><span>{item.id}</span><time>{item.occurrences}×</time></div>
+              <h3>{item.title}</h3>
+              <div className="demo-case-foot"><b>{item.status}</b><span>{item.users} USERS</span><SourcePills sources={item.sources} /></div>
+            </button>
           ))}
         </div>
       </section>
 
-      <section className="pricing shell" id="pricing">
-        <div>
-          <span>03 / GET SIGNALCASE</span>
-          <h2>Free. For every small team.</h2>
-          <p>Download the app, connect your logs, and start triaging with your whole team. No tiers, no seats to buy, no card — ever.</p>
+      <section className="demo-detail">
+        <header className="demo-detail-top"><div><span>{selected.id}</span><i /><b>{selected.status}</b></div><button>Copy packet</button></header>
+        <div className="demo-detail-title">
+          <small>{selected.severity} · PRODUCTION</small>
+          <h2>{selected.title}</h2>
+          <p>{selected.summary}</p>
         </div>
-        <article>
-          <small>SIGNALCASE FOR MACOS</small>
-          <strong>Free</strong>
-          <ul>
-            <li>Every production feature included</li>
-            <li>Up to 5 teammates per workspace</li>
-            <li>3 shared projects · 30 days of event history</li>
-            <li>Supabase, Render, GitHub and application logs</li>
-          </ul>
-          <a className="primary" href={downloadHref}>Download for macOS <span>↓</span></a>
-        </article>
+        <div className="demo-impact">
+          <div><small>OCCURRENCES</small><b>{selected.occurrences}</b></div>
+          <div><small>AFFECTED USERS</small><b>{selected.users}</b></div>
+          <div><small>SOURCES</small><SourcePills sources={selected.sources} /></div>
+        </div>
+        <div className="demo-section-heading"><div><small>PROVEN FROM THE LOGS</small><p>No guesses. Every finding links to an event.</p></div><span>RULE-BASED</span></div>
+        <div className="demo-findings">
+          {selected.findings.map((finding, index) => (
+            <div className="demo-finding" key={finding.title}>
+              <b className={finding.tone}>{String(index + 1).padStart(2, "0")}</b>
+              <div><h3>{finding.title}</h3><p>{finding.body}</p></div>
+              <span className={finding.tone}>{finding.tone === "good" ? "✓" : finding.tone === "bad" ? "!" : "◷"}</span>
+            </div>
+          ))}
+        </div>
+        <div className="demo-section-heading timeline-title"><div><small>UNIFIED TIMELINE</small></div><span>{selected.events.length} RELATED EVENTS</span></div>
+        <div className="demo-timeline">
+          {selected.events.map((event) => (
+            <div className="demo-event" key={`${event.time}-${event.title}`}>
+              <time>{event.time}</time><SourceBadge source={event.source} /><div><h3>{event.title}</h3><p>{event.detail}</p></div><small>{sourceName[event.source]}</small>
+            </div>
+          ))}
+        </div>
+        <div className="demo-code"><small>RELEVANT CODE</small><code>{selected.code}</code></div>
       </section>
-
-      <section className="closing shell">
-        <span className="closing-label">BUILT FOR THE BUG BETWEEN DASHBOARDS</span>
-        <h2>Stop searching.<br /><em>Start reproducing.</em></h2>
-        <a className="primary" href="#sources">See supported sources <span>→</span></a>
-      </section>
-
-      <footer className="shell" id="footer"><div className="brand"><span className="brand-mark">⌁</span><span>SIGNALCASE</span></div><p>Native bug evidence for small development teams.</p><nav className="footer-links"><a href="/support">Support</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a></nav><span>MACOS · FREE · 2026</span></footer>
-    </main>
+    </div>
   );
+}
+
+function InfoWindow({ eyebrow, title, intro, children }: { eyebrow: string; title: string; intro: string; children: React.ReactNode }) {
+  return <div className="info-window"><span>{eyebrow}</span><h2>{title}</h2><p>{intro}</p>{children}</div>;
+}
+
+function InfoCard({ number, icon, title, text }: { number: string; icon: string; title: string; text: string }) {
+  return <article className="os-info-card"><span>{number}</span><i>{icon}</i><h3>{title}</h3><p>{text}</p></article>;
+}
+
+function SourceCard({ source, title, text }: { source: Source; title: string; text: string }) {
+  return <article className="os-source-card"><SourceBadge source={source} /><div><h3>{title}</h3><p>{text}</p></div><span>↗</span></article>;
+}
+
+function DesktopShortcut({ label, icon, tone, onOpen }: { label: string; icon: string; tone: string; onOpen: () => void }) {
+  return <button className="desktop-shortcut" onDoubleClick={onOpen} onClick={onOpen}><span className={`desktop-icon icon-${tone}`}>{icon}</span><span>{label}</span></button>;
+}
+
+function DockButton({ label, icon, tone, active, onOpen }: { label: string; icon: string; tone: string; active: boolean; onOpen: () => void }) {
+  return <button className={`dock-button ${active ? "active" : ""}`} onClick={onOpen} aria-label={`Open ${label}`} title={label}><span className={`dock-icon icon-${tone}`}>{icon}</span></button>;
 }
 
 function SourceBadge({ source }: { source: Source }) {
@@ -272,5 +321,3 @@ function SourceBadge({ source }: { source: Source }) {
 function SourcePills({ sources }: { sources: Source[] }) {
   return <span className="source-pills">{sources.map((source) => <SourceBadge key={source} source={source} />)}</span>;
 }
-
-const downloadHref = process.env.NEXT_PUBLIC_MAC_DOWNLOAD_URL || "/sign-in";
