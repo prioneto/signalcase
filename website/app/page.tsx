@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 type Source = "SB" | "RD" | "APP";
 type AppWindow = "signalcase" | "workflow" | "sources" | "about";
+type AppIconName = "signalcase" | "workflow" | "sources" | "about" | "source";
 
 type ProductCase = {
   id: string;
@@ -142,11 +143,11 @@ export default function Home() {
       </div>
 
       <aside className="desktop-shortcuts" aria-label="Desktop applications">
-        <DesktopShortcut label="Signalcase" icon="⌁" tone="lime" onOpen={() => openWindow("signalcase")} />
-        <DesktopShortcut label="Workflow" icon="↗" tone="blue" onOpen={() => openWindow("workflow")} />
-        <DesktopShortcut label="Sources" icon="⌘" tone="purple" onOpen={() => openWindow("sources")} />
+        <DesktopShortcut label="Signalcase" icon="signalcase" tone="lime" onOpen={() => openWindow("signalcase")} />
+        <DesktopShortcut label="Workflow" icon="workflow" tone="blue" onOpen={() => openWindow("workflow")} />
+        <DesktopShortcut label="Sources" icon="sources" tone="purple" onOpen={() => openWindow("sources")} />
         <a className="desktop-shortcut" href={downloadHref} target={downloadHref.startsWith("http") ? "_blank" : undefined} rel="noreferrer">
-          <span className="desktop-icon icon-orange">↓</span>
+          <span className="desktop-icon icon-orange"><AppGlyph name="source" /></span>
           <span>Source</span>
         </a>
       </aside>
@@ -197,13 +198,13 @@ export default function Home() {
       </section>
 
       <nav className="os-dock" aria-label="Dock">
-        <DockButton label="Signalcase" icon="⌁" tone="lime" active={activeWindow === "signalcase"} onOpen={() => openWindow("signalcase")} />
-        <DockButton label="Workflow" icon="↗" tone="blue" active={activeWindow === "workflow"} onOpen={() => openWindow("workflow")} />
-        <DockButton label="Sources" icon="⌘" tone="purple" active={activeWindow === "sources"} onOpen={() => openWindow("sources")} />
+        <DockButton label="Signalcase" icon="signalcase" tone="lime" active={activeWindow === "signalcase"} onOpen={() => openWindow("signalcase")} />
+        <DockButton label="Workflow" icon="workflow" tone="blue" active={activeWindow === "workflow"} onOpen={() => openWindow("workflow")} />
+        <DockButton label="Sources" icon="sources" tone="purple" active={activeWindow === "sources"} onOpen={() => openWindow("sources")} />
         <span className="dock-divider" />
-        <DockButton label="About" icon="i" tone="dark" active={activeWindow === "about"} onOpen={() => openWindow("about")} />
-        <a className="dock-button" href={downloadHref} aria-label="Download Signalcase" title="Download">
-          <span className="dock-icon icon-orange">↓</span>
+        <DockButton label="About" icon="about" tone="dark" active={activeWindow === "about"} onOpen={() => openWindow("about")} />
+        <a className="dock-button" href={downloadHref} aria-label="Open Signalcase source" title="Source" target={downloadHref.startsWith("http") ? "_blank" : undefined} rel="noreferrer">
+          <span className="dock-icon icon-orange"><AppGlyph name="source" /></span>
         </a>
       </nav>
     </main>
@@ -307,12 +308,32 @@ function SourceCard({ source, title, text }: { source: Source; title: string; te
   return <article className="os-source-card"><SourceBadge source={source} /><div><h3>{title}</h3><p>{text}</p></div><span>↗</span></article>;
 }
 
-function DesktopShortcut({ label, icon, tone, onOpen }: { label: string; icon: string; tone: string; onOpen: () => void }) {
-  return <button className="desktop-shortcut" onDoubleClick={onOpen} onClick={onOpen}><span className={`desktop-icon icon-${tone}`}>{icon}</span><span>{label}</span></button>;
+function DesktopShortcut({ label, icon, tone, onOpen }: { label: string; icon: AppIconName; tone: string; onOpen: () => void }) {
+  return <button className="desktop-shortcut" onDoubleClick={onOpen} onClick={onOpen}><span className={`desktop-icon icon-${tone}`}><AppGlyph name={icon} /></span><span>{label}</span></button>;
 }
 
-function DockButton({ label, icon, tone, active, onOpen }: { label: string; icon: string; tone: string; active: boolean; onOpen: () => void }) {
-  return <button className={`dock-button ${active ? "active" : ""}`} onClick={onOpen} aria-label={`Open ${label}`} title={label}><span className={`dock-icon icon-${tone}`}>{icon}</span></button>;
+function DockButton({ label, icon, tone, active, onOpen }: { label: string; icon: AppIconName; tone: string; active: boolean; onOpen: () => void }) {
+  return <button className={`dock-button ${active ? "active" : ""}`} onClick={onOpen} aria-label={`Open ${label}`} title={label}><span className={`dock-icon icon-${tone}`}><AppGlyph name={icon} /></span></button>;
+}
+
+function AppGlyph({ name }: { name: AppIconName }) {
+  if (name === "signalcase") {
+    return <svg className="app-glyph" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M5.5 10.5 13 14.7v-4.4L26.5 18 19 22.2v-4.4L5.5 10.5Z" fill="currentColor" stroke="currentColor" strokeLinejoin="round" /></svg>;
+  }
+
+  if (name === "workflow") {
+    return <svg className="app-glyph" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M8 23.5 23.5 8M13.5 7.5h10.8v10.8" stroke="currentColor" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" /><circle cx="8" cy="23.5" r="2.4" fill="currentColor" /></svg>;
+  }
+
+  if (name === "sources") {
+    return <svg className="app-glyph" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="m10.2 11.4 5.8 4.2 5.8-4.2M16 15.6v7" stroke="currentColor" strokeWidth="2.7" strokeLinecap="round" /><circle cx="9" cy="10.5" r="3.2" fill="currentColor" /><circle cx="23" cy="10.5" r="3.2" fill="currentColor" /><circle cx="16" cy="24" r="3.2" fill="currentColor" /></svg>;
+  }
+
+  if (name === "about") {
+    return <svg className="app-glyph" viewBox="0 0 32 32" fill="none" aria-hidden="true"><circle cx="16" cy="16" r="10.5" stroke="currentColor" strokeWidth="2.4" /><circle cx="16" cy="11" r="1.7" fill="currentColor" /><path d="M16 15v7" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" /></svg>;
+  }
+
+  return <svg className="app-glyph" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="m11 9-6 7 6 7M21 9l6 7-6 7M18.5 6.5l-5 19" stroke="currentColor" strokeWidth="2.7" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 }
 
 function SourceBadge({ source }: { source: Source }) {
