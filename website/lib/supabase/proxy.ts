@@ -2,6 +2,15 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function updateSession(request: NextRequest) {
+  // Demo deployments without backend configuration degrade to the sign-in
+  // notice instead of throwing inside the middleware.
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) {
+    const redirectURL = request.nextUrl.clone();
+    redirectURL.pathname = "/sign-in";
+    redirectURL.search = "?unconfigured=1";
+    return NextResponse.redirect(redirectURL);
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(

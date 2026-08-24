@@ -5,11 +5,46 @@ type SignInPageProps = {
   searchParams: Promise<{
     error?: string;
     next?: string;
+    unconfigured?: string;
   }>;
 };
 
 export default async function SignInPage({ searchParams }: SignInPageProps) {
   const params = await searchParams;
+  const backendConfigured = Boolean(
+    process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+  );
+
+  if (!backendConfigured || params.unconfigured === "1") {
+    return (
+      <main className="auth-page">
+        <Link className="auth-brand" href="/">
+          <span>⌁</span>
+          SIGNALCASE
+        </Link>
+
+        <section className="auth-card">
+          <div className="auth-eyebrow">SELF-HOSTED</div>
+          <h1>This site is a demo</h1>
+          <p>
+            Signalcase has no official hosted service. To use it with your team,
+            run your own instance — the repository includes a step-by-step guide.
+          </p>
+          <a
+            className="auth-button"
+            href="https://github.com/prioneto/signalcase/blob/main/docs/SELF_HOSTING.md"
+            target="_blank"
+            rel="noreferrer"
+          >
+            <span className="github-mark">GH</span>
+            Read the self-hosting guide
+            <span>→</span>
+          </a>
+          <small>Free and open source under AGPL-3.0. No account here is required.</small>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main className="auth-page">
