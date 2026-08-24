@@ -86,7 +86,8 @@ const cases: ProductCase[] = [
 ];
 
 const sourceName: Record<Source, string> = { SB: "Supabase", RD: "Render", APP: "Application" };
-const downloadHref = process.env.NEXT_PUBLIC_MAC_DOWNLOAD_URL || "/sign-in";
+const githubRepoURL = "https://github.com/prioneto/signalcase";
+const downloadHref = process.env.NEXT_PUBLIC_MAC_DOWNLOAD_URL || githubRepoURL;
 
 export default function Home() {
   const [activeWindow, setActiveWindow] = useState<AppWindow | null>("signalcase");
@@ -144,9 +145,9 @@ export default function Home() {
         <DesktopShortcut label="Signalcase" icon="⌁" tone="lime" onOpen={() => openWindow("signalcase")} />
         <DesktopShortcut label="Workflow" icon="↗" tone="blue" onOpen={() => openWindow("workflow")} />
         <DesktopShortcut label="Sources" icon="⌘" tone="purple" onOpen={() => openWindow("sources")} />
-        <a className="desktop-shortcut" href={downloadHref}>
+        <a className="desktop-shortcut" href={downloadHref} target={downloadHref.startsWith("http") ? "_blank" : undefined} rel="noreferrer">
           <span className="desktop-icon icon-orange">↓</span>
-          <span>Download</span>
+          <span>Source</span>
         </a>
       </aside>
 
@@ -187,7 +188,7 @@ export default function Home() {
               <p>Signalcase connects the events around a failure and hands developers one compact, reproducible case—without searching separate dashboards.</p>
               <div className="about-actions">
                 <button className="os-primary" onClick={() => openWindow("signalcase")}>Launch the demo <span>→</span></button>
-                <a className="os-secondary" href={downloadHref}>Download for macOS</a>
+                <a className="os-secondary" href={downloadHref} target={downloadHref.startsWith("http") ? "_blank" : undefined} rel="noreferrer">Build from source</a>
               </div>
               <div className="about-proof"><span>NO REQUIRED AI</span><i /><span>READ-ONLY CONNECTIONS</span><i /><span>FREE FOR SMALL TEAMS</span></div>
             </div>

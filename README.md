@@ -2,20 +2,22 @@
 
 Signalcase is a free, open-source native macOS app that turns logs from Supabase, Render, GitHub, and your application into compact, evidence-backed bug cases. No payment, no ads, no AI account — grouping and findings are deterministic rules.
 
-- Download the Mac app from [signalcase.app](https://signalcase.app)
-- Run your own instance: see [Self-hosting](docs/SELF_HOSTING.md)
-- Found a security issue? See [SECURITY.md](SECURITY.md). Contributions welcome — start with [CONTRIBUTING.md](CONTRIBUTING.md).
+- **Run it:** build the Mac app and host your own server — see [Self-hosting](docs/SELF_HOSTING.md)
+- Found a security issue? See [SECURITY.md](SECURITY.md). Contributions welcome — start with [CONTRIBUTING.md](CONTRIBUTING.md)
 
 Signalcase only uses connected or imported live data. Grouping and findings are deterministic, so no AI account is required.
 
 ## Native app
 
+Requires macOS 14+ and [Xcode](https://apps.apple.com/app/xcode/id497799835) (or Swift 5.10 toolchain).
+
 ```bash
-cd macOS
+git clone https://github.com/prioneto/signalcase.git
+cd signalcase/macOS
 ./scripts/build-app.sh --open
 ```
 
-The packaged app is created at `macOS/.build/Signalcase.app`.
+The packaged app is created at `macOS/.build/Signalcase.app`. Apps built locally run without Gatekeeper prompts — no Apple Developer account or notarization needed. The first launch asks for the public configuration values; copy `macOS/.env.build.example` to `macOS/.env.build` and point them at your own Signalcase server.
 
 Try these flows:
 

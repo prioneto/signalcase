@@ -1,6 +1,6 @@
 # Signalcase 0.1 launch checklist
 
-Signalcase is a **free** product: download, sign in, use it. There is no payment, subscription, or billing enforcement.
+Signalcase is **free and self-hosted**: clone the repo, build the Mac app, run your own server. There is no payment, no Apple Developer requirement, and nothing to purchase — apps built locally run without notarization.
 
 ## Implemented and live
 
@@ -8,23 +8,28 @@ Signalcase is a **free** product: download, sign in, use it. There is no payment
 - Team invitations, seat limits, Member/Owner roles, removal, and invitation revocation.
 - Project and account deletion, provider credential deletion, secret redaction, request size limits, rate limits, and request IDs.
 - Thirty-day event retention with authenticated daily Vercel cleanup.
-- Native Team settings plus website pricing-free landing page and account dashboard.
-- Supabase production migrations and Vercel production deployment.
+- Native Team settings plus a free-positioned landing page and account dashboard.
+- Supabase migrations and a working Vercel deployment recipe (`docs/SELF_HOSTING.md`).
 - Terms of Service, Privacy Policy, and a support page (`/terms`, `/privacy`, `/support`).
 - First-party error monitoring: server 5xx capture plus native crash/error reporting into `error_reports`.
-- GitHub Actions CI running website typecheck/tests/build and Swift build/tests on every push and PR.
+- GitHub Actions CI running website typecheck/tests/build, Swift build/tests, and gitleaks on every push and PR.
 - Versioned builds (`macOS/VERSION`) with an update channel: `/api/releases/latest` manifest and in-app update check.
 
-## Required before public download
+## Required to publish
 
-- [ ] Buy the production domain and update Vercel, Supabase redirect URLs, Supabase Management OAuth, GitHub App URLs, and `NEXT_PUBLIC_SITE_URL`.
-- [ ] Enroll in the Apple Developer Program; Developer ID sign, notarize, staple, and package the app.
-- [ ] Host the notarized download and set `NEXT_PUBLIC_MAC_DOWNLOAD_URL`, `MAC_RELEASE_VERSION`, and `MAC_RELEASE_BUILD`.
-- [ ] Review the legal text on `/terms` and `/privacy`, and fill in the real entity details in `website/lib/site.ts`.
-- [ ] Decide the free-tier limits for launch (members, projects, retention) and confirm they match what the landing page promises.
+- [ ] Fill in real contact details in `website/lib/site.ts` (entity name is optional for a personal project; keep the support email deliverable).
+- [ ] Flip the GitHub repository to public (Settings → General → Danger Zone).
+- [ ] Tag `v0.1.0` and push the tag.
+- [ ] Create a GitHub Release for `v0.1.0` with release notes. Source-only is fine; if you attach a built `.app`/`.zip`, note in the notes that users must right-click → Open (or run `xattr -cr`) because it is not notarized.
+- [ ] Decide whether you keep your personal hosted instance running on free tiers:
+  - Yes → point its `NEXT_PUBLIC_SITE_URL` at whatever host you use (the Vercel `.vercel.app` domain costs nothing) and update Supabase/GitHub redirect URLs to match.
+  - No → skip; self-hosters follow `docs/SELF_HOSTING.md` with their own keys.
 - [ ] Enable Supabase leaked-password protection if password sign-in remains enabled, or disable password sign-in if GitHub is the only supported method.
-- [ ] Confirm the Supabase plan has appropriate backups and perform one restore rehearsal.
-- [ ] Add transactional email delivery for invitation links, or explicitly launch with copy-link invitations.
+- [ ] Confirm the Supabase plan has automatic backups and perform one restore rehearsal.
+- [ ] Launch with copy-link invitations (documented in-product); add transactional email later only if needed.
 - [ ] Run the collaboration, deletion, provider, and fresh-Mac tests in `docs/PRODUCTION_SETUP.md`.
-- [ ] Watch `error_reports` during the first beta week.
-- [ ] Open-source preparation is complete: AGPL `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md`, gitleaks CI job, project ref scrubbed from docs, and `docs/SELF_HOSTING.md` published. Remaining: flip the GitHub repository to public, then tag `v0.1.0`.
+
+## After publishing
+
+- [ ] Watch `error_reports` on your instance during the first weeks.
+- [ ] Add repo topics/description on GitHub for discoverability.
