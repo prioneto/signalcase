@@ -11,9 +11,10 @@ export default function SupportPage() {
   return (
     <LegalShell eyebrow="SUPPORT" title="Get help" updated="August 22, 2026">
       <p>
-        The fastest way to reach a human is <a href={`mailto:${site.supportEmail}`}>{site.supportEmail}</a>.
-        We reply within two business days, usually faster. Bug reports with a case reference or screenshot
-        get fixed sooner.
+        Signalcase is self-hosted open source, so support runs through the{" "}
+        <a href={site.issuesURL} target="_blank" rel="noreferrer">GitHub issue tracker</a> — no support
+        inbox, and every answer is public so the next person with the same problem finds it. Bug reports
+        with a case reference or screenshot get fixed sooner.
       </p>
 
       <LegalSection heading="In the app">
@@ -38,9 +39,9 @@ export default function SupportPage() {
 
       <LegalSection heading="Security issues">
         <p>
-          Found a security problem? Email{" "}
-          <a href={`mailto:${site.privacyEmail}`}>{site.privacyEmail}</a> with details instead of opening a
-          public issue. We take reports seriously and will credit responsible disclosures if you want.
+          Found a security problem? Use GitHub&apos;s private security report (the{" "}
+          <strong>Security</strong> tab of the repository) instead of opening a public issue. We take
+          reports seriously and will credit responsible disclosures if you want.
         </p>
       </LegalSection>
     </LegalShell>

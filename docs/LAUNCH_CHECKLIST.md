@@ -21,13 +21,11 @@ Signalcase is **free and self-hosted**: clone the repo, build the Mac app, run y
 - [ ] Flip the GitHub repository to public (Settings → General → Danger Zone).
 - [ ] Tag `v0.1.0` and push the tag.
 - [ ] Create a GitHub Release for `v0.1.0` with release notes. Source-only is fine; if you attach a built `.app`/`.zip`, note in the notes that users must right-click → Open (or run `xattr -cr`) because it is not notarized.
-- [ ] Decide whether you keep your personal hosted instance running on free tiers:
-  - Yes → point its `NEXT_PUBLIC_SITE_URL` at whatever host you use (the Vercel `.vercel.app` domain costs nothing) and update Supabase/GitHub redirect URLs to match.
-  - No → skip; self-hosters follow `docs/SELF_HOSTING.md` with their own keys.
+- [ ] Tear down your personal hosted instance if you no longer run one: Vercel project, then Supabase org Management OAuth app, GitHub App, GitHub OAuth app, and finally the Supabase project itself. Self-hosters never touch any of it.
 - [ ] Enable Supabase leaked-password protection if password sign-in remains enabled, or disable password sign-in if GitHub is the only supported method.
 - [ ] Confirm the Supabase plan has automatic backups and perform one restore rehearsal.
 - [ ] Launch with copy-link invitations (documented in-product); add transactional email later only if needed.
-- [ ] Run the collaboration, deletion, provider, and fresh-Mac tests in `docs/PRODUCTION_SETUP.md`.
+- [ ] Run the deployment verification steps in `docs/SELF_HOSTING.md` (§8).
 
 ## After publishing
 

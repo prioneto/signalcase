@@ -12,7 +12,8 @@ export default function TermsPage() {
     <LegalShell eyebrow="LEGAL" title="Terms of Service" updated="August 22, 2026">
       <p>
         These Terms of Service (&quot;Terms&quot;) govern your access to and use of the
-        Signalcase macOS application, the Signalcase website at {site.domain.replace(/^https?:\/\//, "")},
+        Signalcase macOS application and the Signalcase source repository at
+        {site.repoURL.replace("https://", "")},
         and any related services (together, the &quot;Service&quot;). The Service is operated by{" "}
         {site.legalEntity} (&quot;we&quot;, &quot;us&quot;). By creating an account or downloading
         the app you agree to these Terms.
@@ -114,7 +115,7 @@ export default function TermsPage() {
 
       <LegalSection heading="11. Contact">
         <p>
-          Questions about these Terms: <a href={`mailto:${site.supportEmail}`}>{site.supportEmail}</a>.
+          Questions about these Terms: <a href={site.issuesURL} target="_blank" rel="noreferrer">open an issue on GitHub</a>.
         </p>
       </LegalSection>
     </LegalShell>

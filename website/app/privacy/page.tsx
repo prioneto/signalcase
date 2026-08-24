@@ -61,7 +61,7 @@ export default function PrivacyPage() {
           Where GDPR, UK GDPR, or similar laws apply, you can request access, correction, export, or
           erasure of your personal data, and object to or restrict certain processing. Workspace owners can
           delete projects and members directly in the app; for anything else, email{" "}
-          <a href={`mailto:${site.privacyEmail}`}>{site.privacyEmail}</a>. California residents have
+          <a href={site.issuesURL} target="_blank" rel="noreferrer">open an issue on GitHub</a>. California residents have
           equivalent rights to know, delete, and opt out of any &quot;sale&quot; (we do not sell data).
         </p>
       </LegalSection>
@@ -77,7 +77,7 @@ export default function PrivacyPage() {
       <LegalSection heading="7. Changes and contact">
         <p>
           If this policy changes materially, we will note the new date above and notify signed-in users in
-          the app for significant changes. Questions: <a href={`mailto:${site.privacyEmail}`}>{site.privacyEmail}</a>.
+          the app for significant changes. Questions: <a href={site.issuesURL} target="_blank" rel="noreferrer">open an issue on GitHub</a>.
         </p>
       </LegalSection>
     </LegalShell>

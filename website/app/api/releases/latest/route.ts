@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const version = process.env.MAC_RELEASE_VERSION?.trim() || null;
   const build = process.env.MAC_RELEASE_BUILD?.trim() || null;
-  const downloadURL = site.macDownloadURL;
+  const downloadURL = process.env.NEXT_PUBLIC_MAC_DOWNLOAD_URL || site.repoURL;
   const notesURL = process.env.MAC_RELEASE_NOTES_URL?.trim() || null;
 
   return Response.json(

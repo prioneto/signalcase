@@ -1,6 +1,6 @@
 # Self-hosting Signalcase
 
-Signalcase is free software (AGPL-3.0). The hosted instance at [signalcase.app](https://signalcase.app) is one deployment of this code — you can run your own completely independent copy with your own Supabase project, your own OAuth applications, and zero connection to the hosted service.
+Signalcase is free software (AGPL-3.0) with no official hosted service — running your own instance is the way to use it. This guide gives you a completely independent deployment: your own Supabase project, your own OAuth applications, and zero connection to anyone else's infrastructure.
 
 ## What you need
 
@@ -109,3 +109,45 @@ Release updates by bumping `macOS/VERSION`, building, and setting `MAC_RELEASE_V
 ## License
 
 Running your own instance is exactly what the AGPL-3.0 intends. If you modify the server code and offer it as a network service, section 13 of the license requires you to offer your modified source to your users. See [LICENSE](../LICENSE).
+
+## 8. Verify your deployment
+
+With the app built and pointed at your server:
+
+**Sign-in and Supabase evidence**
+
+1. Launch the app, complete onboarding, then **Sign in with GitHub** — the browser should open and return you with your email shown.
+2. **Settings → Connections → Supabase → Connect Supabase** and approve the `projects:read` + `analytics:read` request.
+3. In the monitored project's SQL editor, run this harmless failing read:
+
+   ```sql
+   select * from public.signalcase_connection_test_table_that_does_not_exist;
+   ```
+
+4. Wait about a minute, then sync the last 15 minutes from Signalcase. A database-error case should appear.
+
+If sync returns `403`, your Management OAuth app is missing a scope — reconnect after enabling both read scopes.
+
+**GitHub evidence**
+
+1. **Settings → Connections → GitHub → Connect GitHub**, approve one repository, install.
+2. Trigger a failing Actions workflow (or pick an older window containing a failure) and sync.
+3. The failed run appears as a case with branch, run number, actor, commit SHA, and a link back to Actions.
+
+**Application Logs**
+
+1. **Settings → Connections → Application Logs → Create production endpoint**, copy the generated variables into a server-side test project.
+2. Send the JSON example shown in the app while the Mac app is closed, reopen, sync the matching window.
+
+**Collaboration**
+
+1. Invite a second account from **Settings → Team**, accept via the copied link in a private browser window.
+2. Sign in on another Mac (or another user account), select the shared project, and confirm cases and status changes propagate — including a resolved case reopening when newer evidence arrives.
+3. Test role changes, member removal, project deletion, and account deletion with disposable accounts.
+4. `GET /api/cron/cleanup` without the bearer token must return `401`.
+
+## 9. Releases and updates
+
+- Bump `macOS/VERSION`, rebuild, and note the build number printed by `build-app.sh`.
+- Set `MAC_RELEASE_VERSION` / `MAC_RELEASE_BUILD` on your deployment so connected apps see the update through `/api/releases/latest` within a day or via **Settings → General → Check for Updates**.
+- This channel notifies users; they replace the app themselves. Locally built apps are not notarized, so downloaded binaries will require a right-click → Open (or `xattr -cr`) on machines other than the build machine.

@@ -4,10 +4,12 @@
 
 Please report security issues privately — do not open a public issue.
 
-- Email: **security@signalcase.app**
-- Include: what you found, how to reproduce it, and the affected component (`macOS/` app or `website/` server).
-- You will receive an acknowledgement within **3 business days** and a status update at least every 7 days until resolution.
-- Coordinated disclosure is welcome; we will credit reporters in release notes unless asked otherwise. Please allow a reasonable window (up to 90 days) before public disclosure.
+- Use GitHub's **"Report a vulnerability"** button on the **Security** tab of the repository, or
+- email the maintainer directly if you prefer: **wot.mits@gmail.com**
+
+Include: what you found, how to reproduce it, and the affected component (`macOS/` app or `website/` server).
+You will receive an acknowledgement within **3 business days** and a status update at least every 7 days until resolution.
+Coordinated disclosure is welcome; we will credit reporters in release notes unless asked otherwise. Please allow a reasonable window (up to 90 days) before public disclosure.
 
 ## Scope
 

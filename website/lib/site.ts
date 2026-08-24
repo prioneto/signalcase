@@ -1,12 +1,9 @@
 // Central place for customer-facing company details shown on legal and
-// support pages. Replace the placeholders with real values before launch.
+// support pages. Signalcase is self-hosted open source — support and privacy
+// contacts run through the repository, not a hosted domain.
 export const site = {
   name: "Signalcase",
-  // The legal entity operating Signalcase. Fill in a real registered
-  // business name (or your own name) before launch.
-  legalEntity: "Signalcase",
-  supportEmail: "support@signalcase.app",
-  privacyEmail: "privacy@signalcase.app",
-  domain: process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3002",
-  macDownloadURL: process.env.NEXT_PUBLIC_MAC_DOWNLOAD_URL || null,
+  legalEntity: "The Signalcase contributors",
+  repoURL: "https://github.com/prioneto/signalcase",
+  issuesURL: "https://github.com/prioneto/signalcase/issues",
 } as const;
