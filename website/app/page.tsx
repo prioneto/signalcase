@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type Source = "SB" | "RD" | "APP";
 type AppWindow = "signalcase" | "workflow" | "sources" | "about";
 type AppIconName = "signalcase" | "workflow" | "sources" | "about" | "source";
+type CaseFilter = "ALL" | "NEW" | "ACTIVE";
 
 type ProductCase = {
   id: string;
@@ -94,6 +95,7 @@ export default function Home() {
   const [activeWindow, setActiveWindow] = useState<AppWindow | null>("signalcase");
   const [selectedID, setSelectedID] = useState(cases[0].id);
   const [maximized, setMaximized] = useState(false);
+  const [minimized, setMinimized] = useState(false);
   const [clock, setClock] = useState("MON · 12:05");
   const selected = cases.find((item) => item.id === selectedID) ?? cases[0];
 
@@ -112,10 +114,17 @@ export default function Home() {
   const openWindow = (app: AppWindow) => {
     setActiveWindow(app);
     setMaximized(false);
+    setMinimized(false);
   };
 
   return (
-    <main className="os-desktop">
+    <main
+      className="os-desktop"
+      onPointerMove={(event) => {
+        event.currentTarget.style.setProperty("--pointer-x", `${event.clientX}px`);
+        event.currentTarget.style.setProperty("--pointer-y", `${event.clientY}px`);
+      }}
+    >
       <h1 className="sr-only">Signalcase — Native bug evidence for small teams</h1>
 
       <header className="os-menu-bar">
@@ -152,14 +161,14 @@ export default function Home() {
         </a>
       </aside>
 
-      <section className={`os-stage ${maximized ? "is-maximized" : ""}`} aria-live="polite">
+      <section className={`os-stage ${maximized ? "is-maximized" : ""} ${minimized ? "is-minimized" : ""}`} aria-live="polite">
         {activeWindow === "signalcase" && (
-          <WindowFrame title="Signalcase — fitref" onClose={() => setActiveWindow(null)} onZoom={() => setMaximized((value) => !value)}>
+          <WindowFrame title="Signalcase — fitref" onClose={() => setActiveWindow(null)} onMinimize={() => setMinimized(true)} onZoom={() => setMaximized((value) => !value)}>
             <ProductApp selected={selected} selectedID={selectedID} onSelect={setSelectedID} onOpenAbout={() => openWindow("about")} />
           </WindowFrame>
         )}
         {activeWindow === "workflow" && (
-          <WindowFrame title="Workflow" onClose={() => setActiveWindow(null)} onZoom={() => setMaximized((value) => !value)} compact>
+          <WindowFrame title="Workflow" onClose={() => setActiveWindow(null)} onMinimize={() => setMinimized(true)} onZoom={() => setMaximized((value) => !value)} compact>
             <InfoWindow eyebrow="01 / WORKFLOW" title="From noisy services to one usable case." intro="Signalcase keeps the few events that prove what happened and turns them into a handoff your developer can use.">
               <div className="os-step-grid">
                 <InfoCard number="01" icon="⌁" title="Collect" text="Read recent deploys, errors, database events, and webhook deliveries from your stack." />
@@ -170,7 +179,7 @@ export default function Home() {
           </WindowFrame>
         )}
         {activeWindow === "sources" && (
-          <WindowFrame title="Connected Sources" onClose={() => setActiveWindow(null)} onZoom={() => setMaximized((value) => !value)} compact>
+          <WindowFrame title="Connected Sources" onClose={() => setActiveWindow(null)} onMinimize={() => setMinimized(true)} onZoom={() => setMaximized((value) => !value)} compact>
             <InfoWindow eyebrow="02 / SOURCES" title="One failure. Every trace." intro="Start with read-only connections. Signalcase brings the evidence together without asking your team to live in another dashboard.">
               <div className="os-source-grid">
                 <SourceCard source="SB" title="Supabase" text="Auth, Postgres, RLS, Storage and Edge Functions." />
@@ -181,7 +190,7 @@ export default function Home() {
           </WindowFrame>
         )}
         {activeWindow === "about" && (
-          <WindowFrame title="About Signalcase" onClose={() => setActiveWindow(null)} onZoom={() => setMaximized((value) => !value)} compact>
+          <WindowFrame title="About Signalcase" onClose={() => setActiveWindow(null)} onMinimize={() => setMinimized(true)} onZoom={() => setMaximized((value) => !value)} compact>
             <div className="about-window">
               <div className="about-mark">⌁</div>
               <span className="about-version">SIGNALCASE · MACOS</span>
@@ -198,12 +207,12 @@ export default function Home() {
       </section>
 
       <nav className="os-dock" aria-label="Dock">
-        <DockButton label="Signalcase" icon="signalcase" tone="lime" active={activeWindow === "signalcase"} onOpen={() => openWindow("signalcase")} />
-        <DockButton label="Workflow" icon="workflow" tone="blue" active={activeWindow === "workflow"} onOpen={() => openWindow("workflow")} />
-        <DockButton label="Sources" icon="sources" tone="purple" active={activeWindow === "sources"} onOpen={() => openWindow("sources")} />
+        <DockButton label="Signalcase" icon="signalcase" tone="lime" active={activeWindow === "signalcase"} minimized={minimized && activeWindow === "signalcase"} onOpen={() => openWindow("signalcase")} />
+        <DockButton label="Workflow" icon="workflow" tone="blue" active={activeWindow === "workflow"} minimized={minimized && activeWindow === "workflow"} onOpen={() => openWindow("workflow")} />
+        <DockButton label="Sources" icon="sources" tone="purple" active={activeWindow === "sources"} minimized={minimized && activeWindow === "sources"} onOpen={() => openWindow("sources")} />
         <span className="dock-divider" />
-        <DockButton label="About" icon="about" tone="dark" active={activeWindow === "about"} onOpen={() => openWindow("about")} />
-        <a className="dock-button" href={downloadHref} aria-label="Open Signalcase source" title="Source" target={downloadHref.startsWith("http") ? "_blank" : undefined} rel="noreferrer">
+        <DockButton label="About" icon="about" tone="dark" active={activeWindow === "about"} minimized={minimized && activeWindow === "about"} onOpen={() => openWindow("about")} />
+        <a className="dock-button" data-label="Source" href={downloadHref} aria-label="Open Signalcase source" target={downloadHref.startsWith("http") ? "_blank" : undefined} rel="noreferrer">
           <span className="dock-icon icon-orange"><AppGlyph name="source" /></span>
         </a>
       </nav>
@@ -211,13 +220,13 @@ export default function Home() {
   );
 }
 
-function WindowFrame({ title, children, onClose, onZoom, compact = false }: { title: string; children: React.ReactNode; onClose: () => void; onZoom: () => void; compact?: boolean }) {
+function WindowFrame({ title, children, onClose, onMinimize, onZoom, compact = false }: { title: string; children: React.ReactNode; onClose: () => void; onMinimize: () => void; onZoom: () => void; compact?: boolean }) {
   return (
     <div className={`os-window ${compact ? "os-window-compact" : ""}`} role="dialog" aria-label={title}>
-      <div className="os-titlebar">
-        <div className="os-traffic">
+      <div className="os-titlebar" onDoubleClick={onZoom} title="Double-click to zoom">
+        <div className="os-traffic" onDoubleClick={(event) => event.stopPropagation()}>
           <button className="traffic-close" onClick={onClose} aria-label="Close window" />
-          <button className="traffic-min" onClick={onClose} aria-label="Minimize window" />
+          <button className="traffic-min" onClick={onMinimize} aria-label="Minimize window" />
           <button className="traffic-zoom" onClick={onZoom} aria-label="Zoom window" />
         </div>
         <strong>{title}</strong>
@@ -230,15 +239,80 @@ function WindowFrame({ title, children, onClose, onZoom, compact = false }: { ti
 }
 
 function ProductApp({ selected, selectedID, onSelect, onOpenAbout }: { selected: ProductCase; selectedID: string; onSelect: (id: string) => void; onOpenAbout: () => void }) {
+  const [filter, setFilter] = useState<CaseFilter>("ALL");
+  const [query, setQuery] = useState("");
+  const [syncState, setSyncState] = useState<"idle" | "syncing" | "done">("idle");
+  const [copied, setCopied] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const filteredCases = cases.filter((item) => {
+    const matchesFilter = filter === "ALL" || item.status === filter;
+    const search = query.trim().toLowerCase();
+    return matchesFilter && (!search || `${item.id} ${item.title} ${item.summary}`.toLowerCase().includes(search));
+  });
+
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, []);
+
+  useEffect(() => {
+    if (filteredCases.length > 0 && !filteredCases.some((item) => item.id === selectedID)) {
+      onSelect(filteredCases[0].id);
+    }
+  }, [filter, query, selectedID]);
+
+  useEffect(() => {
+    if (syncState !== "syncing") return;
+    const timer = window.setTimeout(() => setSyncState("done"), 1100);
+    return () => window.clearTimeout(timer);
+  }, [syncState]);
+
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), 1800);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+
+  const selectFilter = (nextFilter: CaseFilter) => {
+    setFilter(nextFilter);
+    const next = cases.find((item) => nextFilter === "ALL" || item.status === nextFilter);
+    if (next) onSelect(next.id);
+  };
+
+  const copyPacket = async () => {
+    const packet = [
+      `${selected.id} — ${selected.title}`,
+      `${selected.severity} · ${selected.status}`,
+      selected.summary,
+      `Impact: ${selected.occurrences} occurrences · ${selected.users} users`,
+      `Relevant code: ${selected.code}`,
+    ].join("\n");
+    try {
+      await navigator.clipboard.writeText(packet);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  };
+
   return (
     <div className="demo-app">
       <aside className="demo-sidebar">
         <div className="demo-brand"><b>⌁</b><span>SIGNALCASE</span></div>
-        <button className="sync-button"><span>⌁</span> Sync recent logs</button>
+        <button className={`sync-button ${syncState}`} onClick={() => setSyncState("syncing")} disabled={syncState === "syncing"}>
+          <span>{syncState === "done" ? "✓" : "⌁"}</span>
+          {syncState === "syncing" ? "Syncing sources…" : syncState === "done" ? "Logs up to date" : "Sync recent logs"}
+        </button>
         <small>INBOX</small>
-        <button className="demo-nav active"><span>All cases</span><b>{cases.length}</b></button>
-        <button className="demo-nav"><span>New</span><b>1</b></button>
-        <button className="demo-nav"><span>Active</span><b>2</b></button>
+        <button className={`demo-nav ${filter === "ALL" ? "active" : ""}`} onClick={() => selectFilter("ALL")} aria-pressed={filter === "ALL"}><span>All cases</span><b>{cases.length}</b></button>
+        <button className={`demo-nav ${filter === "NEW" ? "active" : ""}`} onClick={() => selectFilter("NEW")} aria-pressed={filter === "NEW"}><span>New</span><b>{cases.filter((item) => item.status === "NEW").length}</b></button>
+        <button className={`demo-nav ${filter === "ACTIVE" ? "active" : ""}`} onClick={() => selectFilter("ACTIVE")} aria-pressed={filter === "ACTIVE"}><span>Active</span><b>{cases.filter((item) => item.status === "ACTIVE").length}</b></button>
         <div className="sidebar-bottom">
           <small>PROJECT</small>
           <div className="project-switcher"><span>▰</span><div><b>fitref</b><p>3 connected sources</p></div></div>
@@ -247,21 +321,27 @@ function ProductApp({ selected, selectedID, onSelect, onOpenAbout }: { selected:
       </aside>
 
       <section className="demo-cases">
-        <header><div><h2>Grouped problems</h2><p>{cases.length} cases from connected logs</p></div><span className="status-light" /></header>
-        <div className="demo-search">⌕ <span>Search cases…</span><kbd>⌘ K</kbd></div>
+        <header><div><h2>Grouped problems</h2><p>{filteredCases.length} {filteredCases.length === 1 ? "case" : "cases"} from connected logs</p></div><span className="status-light" /></header>
+        <label className="demo-search">
+          <span aria-hidden="true">⌕</span>
+          <input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search cases…" aria-label="Search cases" />
+          {query ? <button onClick={() => setQuery("")} aria-label="Clear search">×</button> : <kbd>⌘ K</kbd>}
+        </label>
         <div className="demo-case-rows">
-          {cases.map((item) => (
+          {filteredCases.map((item) => (
             <button className={`demo-case ${selectedID === item.id ? "selected" : ""}`} key={item.id} onClick={() => onSelect(item.id)}>
               <div className="demo-case-meta"><span>{item.id}</span><time>{item.occurrences}×</time></div>
               <h3>{item.title}</h3>
               <div className="demo-case-foot"><b>{item.status}</b><span>{item.users} USERS</span><SourcePills sources={item.sources} /></div>
             </button>
           ))}
+          {filteredCases.length === 0 && <div className="demo-empty"><span>⌕</span><b>No matching cases</b><button onClick={() => { setQuery(""); setFilter("ALL"); }}>Clear filters</button></div>}
         </div>
       </section>
 
       <section className="demo-detail">
-        <header className="demo-detail-top"><div><span>{selected.id}</span><i /><b>{selected.status}</b></div><button>Copy packet</button></header>
+        <header className="demo-detail-top"><div><span>{selected.id}</span><i /><b>{selected.status}</b></div><button className={copied ? "copied" : ""} onClick={copyPacket}>{copied ? "✓ Copied" : "Copy packet"}</button></header>
+        <div className="demo-detail-body" key={selected.id}>
         <div className="demo-detail-title">
           <small>{selected.severity} · PRODUCTION</small>
           <h2>{selected.title}</h2>
@@ -291,6 +371,7 @@ function ProductApp({ selected, selectedID, onSelect, onOpenAbout }: { selected:
           ))}
         </div>
         <div className="demo-code"><small>RELEVANT CODE</small><code>{selected.code}</code></div>
+        </div>
       </section>
     </div>
   );
@@ -312,8 +393,8 @@ function DesktopShortcut({ label, icon, tone, onOpen }: { label: string; icon: A
   return <button className="desktop-shortcut" onDoubleClick={onOpen} onClick={onOpen}><span className={`desktop-icon icon-${tone}`}><AppGlyph name={icon} /></span><span>{label}</span></button>;
 }
 
-function DockButton({ label, icon, tone, active, onOpen }: { label: string; icon: AppIconName; tone: string; active: boolean; onOpen: () => void }) {
-  return <button className={`dock-button ${active ? "active" : ""}`} onClick={onOpen} aria-label={`Open ${label}`} title={label}><span className={`dock-icon icon-${tone}`}><AppGlyph name={icon} /></span></button>;
+function DockButton({ label, icon, tone, active, minimized, onOpen }: { label: string; icon: AppIconName; tone: string; active: boolean; minimized: boolean; onOpen: () => void }) {
+  return <button className={`dock-button ${active ? "active" : ""} ${minimized ? "minimized" : ""}`} data-label={label} onClick={onOpen} aria-label={`Open ${label}`}><span className={`dock-icon icon-${tone}`}><AppGlyph name={icon} /></span></button>;
 }
 
 function AppGlyph({ name }: { name: AppIconName }) {
