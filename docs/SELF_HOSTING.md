@@ -80,6 +80,8 @@ Set the root directory to `website` and configure Production environment variabl
 | `GITHUB_APP_ID` / `GITHUB_APP_SLUG` / `GITHUB_APP_PRIVATE_KEY` | From step 4 |
 | `CRON_SECRET` | Long random value for the retention cron |
 
+Without the Supabase variables the deployment serves only the static demo: the landing page and legal pages work, and `/sign-in` and `/dashboard` explain that Signalcase is self-hosted.
+
 Redeploy after saving, then verify:
 
 - `https://YOUR_DOMAIN/api/health` → `"ok": true`
@@ -105,10 +107,6 @@ Release updates by bumping `macOS/VERSION`, building, and setting `MAC_RELEASE_V
 - Errors from the server and connected apps land in the `error_reports` table (90-day retention).
 - Fair-use limits (members per workspace, projects per workspace, event history days) live in `workspace_settings`; tune them there if you want different defaults.
 - Legal pages at `/terms`, `/privacy`, and `/support` ship with placeholder entity details — replace them in `website/lib/site.ts` before serving real users.
-
-## License
-
-Running your own instance is exactly what the AGPL-3.0 intends. If you modify the server code and offer it as a network service, section 13 of the license requires you to offer your modified source to your users. See [LICENSE](../LICENSE).
 
 ## 8. Verify your deployment
 
@@ -151,3 +149,7 @@ If sync returns `403`, your Management OAuth app is missing a scope — reconnec
 - Bump `macOS/VERSION`, rebuild, and note the build number printed by `build-app.sh`.
 - Set `MAC_RELEASE_VERSION` / `MAC_RELEASE_BUILD` on your deployment so connected apps see the update through `/api/releases/latest` within a day or via **Settings → General → Check for Updates**.
 - This channel notifies users; they replace the app themselves. Locally built apps are not notarized, so downloaded binaries will require a right-click → Open (or `xattr -cr`) on machines other than the build machine.
+
+## License
+
+Running your own instance is exactly what the AGPL-3.0 intends. If you modify the server code and offer it as a network service, section 13 of the license requires you to offer your modified source to your users. See [LICENSE](../LICENSE).

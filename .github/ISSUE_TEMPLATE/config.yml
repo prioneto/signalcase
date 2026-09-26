@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/prioneto/signalcase/security/advisories/new
+    about: Please report security problems privately, not as public issues.
+  - name: Self-hosting guide
+    url: https://github.com/prioneto/signalcase/blob/main/docs/SELF_HOSTING.md
+    about: Setup steps for the database, OAuth apps, server, and Mac app.

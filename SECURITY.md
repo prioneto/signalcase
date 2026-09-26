@@ -16,7 +16,7 @@ Coordinated disclosure is welcome; we will credit reporters in release notes unl
 In scope:
 
 - The Signalcase macOS application (`macOS/`)
-- The hosted server and website (`website/`), including API routes, OAuth flows, credential storage, and the Supabase schema in `supabase/migrations/`
+- The server and website (`website/`), including API routes, OAuth flows, credential storage, and the Supabase schema in `supabase/migrations/`
 
 Out of scope:
 

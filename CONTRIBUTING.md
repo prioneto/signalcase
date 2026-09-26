@@ -4,21 +4,22 @@ Thanks for your interest in improving Signalcase! It is a free, open-source macO
 
 ## Ground rules
 
-- **Issues are always welcome** — bug reports, false-positive detections, integration ideas, documentation gaps.
+- **Issues are always welcome** — bug reports, false-positive detections, integration ideas, documentation gaps. The issue forms ask for what we need to reproduce a problem.
 - **Please open an issue before starting a large PR.** This keeps the project maintainable by a solo maintainer and avoids wasted effort. Small, focused fixes can go straight to a PR.
 - Every change must keep CI green: website typecheck + tests + build, and Swift build + tests.
 
 ## Development setup
 
-1. **Website/server** (Next.js 16 + Supabase):
+1. **Website/server** (Next.js 16 + Supabase, Node.js 22.13+):
 
    ```bash
    cd website
    npm install
-   cp .env.example .env.local   # fill in your own dev credentials
    npm run dev                  # http://localhost:3002
    npm run typecheck && npm test
    ```
+
+   Without `.env.local` the site runs as the static demo, which is enough for landing-page work. For server features, `cp .env.example .env.local` and fill in your own development credentials.
 
 2. **macOS app** (Swift 5.10 / SwiftUI):
 
@@ -31,7 +32,7 @@ Thanks for your interest in improving Signalcase! It is a free, open-source macO
 
 3. **Database**: apply `supabase/migrations/` in filename order to your own Supabase project. See `docs/SELF_HOSTING.md`.
 
-Use your own development Supabase project, OAuth applications, and GitHub App — never point local development at the hosted production service.
+Use your own development Supabase project, OAuth applications, and GitHub App — never point local development at an instance real users depend on.
 
 ## Code style
 
