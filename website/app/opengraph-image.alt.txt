@@ -1,0 +1,1 @@
+Signalcase: "Your logs already know what broke." Free, open-source bug evidence for macOS, next to the app window showing a grouped bug case.

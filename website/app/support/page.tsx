@@ -4,7 +4,7 @@ import { site } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: "Support — Signalcase",
-  description: "Get help with Signalcase: email, in-app feedback, and status.",
+  description: "Get help with Signalcase: GitHub issues, in-app feedback, and common questions.",
 };
 
 export default function SupportPage() {
@@ -19,7 +19,7 @@ export default function SupportPage() {
 
       <LegalSection heading="In the app">
         <ul>
-          <li><strong>Send Feedback…</strong> (app menu or Settings) — reports a bug, asks a question, or requests a feature straight to us, optionally attaching app version details.</li>
+          <li><strong>Send Feedback…</strong> (app menu or Settings) — reports a bug, asks a question, or requests a feature to whoever runs your Signalcase server, optionally attaching app version details.</li>
           <li><strong>Settings → Activity &amp; data</strong> — shows recent sync activity per source, which usually explains whether data reached Signalcase.</li>
         </ul>
       </LegalSection>
@@ -27,7 +27,7 @@ export default function SupportPage() {
       <LegalSection heading="Common questions">
         <dl>
           <dt>Is it really free?</dt>
-          <dd>Yes. Download the app and use it with your whole team — no payment, no card, no ads.</dd>
+          <dd>Yes. Signalcase is open source under AGPL-3.0: build the app, run your own server, and use it with your whole team — no payment, no card, no ads.</dd>
           <dt>Sync finds nothing</dt>
           <dd>Check that the source is connected in Settings → Connections, that the time window covers the failure, and that provider retention still holds the events.</dd>
           <dt>Authorization fails with 403</dt>

@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { BrandMark } from "@/components/brand-mark";
 import { createClient } from "@/lib/supabase/server";
 import { signOut } from "./actions";
 
@@ -57,7 +58,7 @@ export default async function DashboardPage({ searchParams }: Props) {
   return (
     <main className="cloud-page">
       <header className="cloud-header">
-        <a className="auth-brand" href="/"><span>⌁</span>SIGNALCASE</a>
+        <a className="auth-brand" href="/"><span><BrandMark /></span>SIGNALCASE</a>
         <div className="cloud-account">
           <span>{user.email ?? "Signed in"}</span>
           <form action={signOut}><button className="cloud-secondary" type="submit">Sign out</button></form>

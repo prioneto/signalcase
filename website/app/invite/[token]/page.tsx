@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { BrandMark } from "@/components/brand-mark";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { invitationTokenHash } from "@/lib/team";
@@ -27,7 +28,7 @@ export default async function InvitePage({ params }: InvitePageProps) {
 
   return (
     <main className="auth-page">
-      <Link className="auth-brand" href="/"><span>⌁</span>SIGNALCASE</Link>
+      <Link className="auth-brand" href="/"><span><BrandMark /></span>SIGNALCASE</Link>
       <section className="auth-card">
         <div className="auth-eyebrow">TEAM INVITATION</div>
         {valid ? (
