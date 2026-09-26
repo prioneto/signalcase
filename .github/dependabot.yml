@@ -7,6 +7,13 @@ updates:
     groups:
       website:
         patterns: ["*"]
+    ignore:
+      # Types must match the oldest supported Node.js (engines: >=22.13).
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # Compiler majors get a deliberate upgrade, not a grouped bump.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: swift
     directory: /macOS
     schedule:
