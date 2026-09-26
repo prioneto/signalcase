@@ -1,0 +1,53 @@
+name: Bug report
+description: Something in the Mac app, server, or website does not work as expected.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Remove tokens, secrets, and customer data from logs before posting.
+        Security problems go to a private report instead — see [SECURITY.md](https://github.com/prioneto/signalcase/blob/main/SECURITY.md).
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - macOS app
+        - Case detection (wrong or missing case)
+        - Server / website
+        - Database migrations
+        - Documentation
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Connect Supabase
+        2. Sync the last 15 minutes
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: App version from Settings → General, or the commit you built from.
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or case packet
+      description: Use **Copy packet** on a case, or paste the related log lines.
+      render: text
