@@ -11,7 +11,7 @@ let package = Package(
     dependencies: [
         .package(
             url: "https://github.com/supabase/supabase-swift.git",
-            exact: "2.54.1"
+            exact: "2.55.2"
         )
     ],
     targets: [
