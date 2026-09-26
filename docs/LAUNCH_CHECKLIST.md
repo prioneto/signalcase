@@ -19,8 +19,8 @@ Signalcase is **free and self-hosted**: clone the repo, build the Mac app, run y
 
 - [ ] Fill in real contact details in `website/lib/site.ts` (entity name is optional for a personal project; keep the support email deliverable).
 - [x] Flip the GitHub repository to public (Settings → General → Danger Zone).
-- [ ] Tag `v0.1.0` and push the tag.
-- [ ] Create a GitHub Release for `v0.1.0` with release notes. Source-only is fine; if you attach a built `.app`/`.zip`, note in the notes that users must right-click → Open (or run `xattr -cr`) because it is not notarized.
+- [x] Tag `v0.1.0` and push the tag.
+- [x] Create a GitHub Release for `v0.1.0` with release notes. Source-only is fine; if you attach a built `.app`/`.zip`, note in the notes that users must right-click → Open (or run `xattr -cr`) because it is not notarized.
 - [ ] Tear down everything except the demo website: delete the Supabase project last, after removing the Supabase org Management OAuth app, the Signalcase GitHub App, and the GitHub sign-in OAuth app. The Vercel deployment stays as a demo — with no backend env vars it shows the landing demo and legal pages, while `/dashboard` and `/sign-in` explain that Signalcase is self-hosted.
 - [ ] Enable Supabase leaked-password protection if password sign-in remains enabled, or disable password sign-in if GitHub is the only supported method.
 - [ ] Confirm the Supabase plan has automatic backups and perform one restore rehearsal.
