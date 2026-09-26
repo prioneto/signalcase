@@ -6,4 +6,6 @@ export const site = {
   legalEntity: "The Signalcase contributors",
   repoURL: "https://github.com/prioneto/signalcase",
   issuesURL: "https://github.com/prioneto/signalcase/issues",
+  selfHostingURL: "https://github.com/prioneto/signalcase/blob/main/docs/SELF_HOSTING.md",
+  licenseURL: "https://github.com/prioneto/signalcase/blob/main/LICENSE",
 } as const;

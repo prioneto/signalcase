@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { BrandMark } from "@/components/brand-mark";
+import { site } from "@/lib/site";
 import { signInWithGitHub } from "./actions";
 
 type SignInPageProps = {
@@ -19,7 +21,7 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
     return (
       <main className="auth-page">
         <Link className="auth-brand" href="/">
-          <span>⌁</span>
+          <span><BrandMark /></span>
           SIGNALCASE
         </Link>
 
@@ -32,7 +34,7 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
           </p>
           <a
             className="auth-button"
-            href="https://github.com/prioneto/signalcase/blob/main/docs/SELF_HOSTING.md"
+            href={site.selfHostingURL}
             target="_blank"
             rel="noreferrer"
           >
@@ -49,7 +51,7 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
   return (
     <main className="auth-page">
       <Link className="auth-brand" href="/">
-        <span>⌁</span>
+        <span><BrandMark /></span>
         SIGNALCASE
       </Link>
 

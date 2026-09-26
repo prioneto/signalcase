@@ -9,14 +9,16 @@ export const metadata: Metadata = {
 
 export default function TermsPage() {
   return (
-    <LegalShell eyebrow="LEGAL" title="Terms of Service" updated="August 22, 2026">
+    <LegalShell eyebrow="LEGAL" title="Terms of Service" updated="August 22, 2026" template>
       <p>
-        These Terms of Service (&quot;Terms&quot;) govern your access to and use of the
-        Signalcase macOS application and the Signalcase source repository at
-        {site.repoURL.replace("https://", "")},
-        and any related services (together, the &quot;Service&quot;). The Service is operated by{" "}
-        {site.legalEntity} (&quot;we&quot;, &quot;us&quot;). By creating an account or downloading
-        the app you agree to these Terms.
+        These Terms of Service (&quot;Terms&quot;) govern your use of this Signalcase server and
+        the accounts, workspaces, and connections it hosts (together, the &quot;Service&quot;). The
+        Service is operated by {site.legalEntity} (&quot;we&quot;, &quot;us&quot;). By creating an
+        account you agree to these Terms. The Signalcase software itself, published at{" "}
+        <a href={site.repoURL} target="_blank" rel="noreferrer">{site.repoURL.replace("https://", "")}</a>,
+        is licensed separately under the{" "}
+        <a href={site.licenseURL} target="_blank" rel="noreferrer">GNU Affero General Public License v3.0</a>,
+        and nothing in these Terms limits the rights that license gives you.
       </p>
 
       <LegalSection heading="1. Accounts">
@@ -27,16 +29,11 @@ export default function TermsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection heading="2. Free license">
+      <LegalSection heading="2. Free software">
         <p>
-          Signalcase is provided free of charge. We grant you a personal, non-exclusive,
-          non-transferable license to download, install, and use the app for any lawful purpose, including
-          commercial use within your team. You do not need to pay, enter a payment method, or subscribe —
-          and there are no ads inside the app.
-        </p>
-        <p>
-          We may offer optional paid products or services in the future. If we ever do, they will be clearly
-          separate from this free offering, and nothing in these Terms obligates you to buy anything.
+          Signalcase is free software. You may use, study, modify, and self-host it — including for
+          commercial use within your team — under the AGPL-3.0. Using the Service costs nothing: you do
+          not need to pay, enter a payment method, or subscribe, and there are no ads inside the app.
         </p>
       </LegalSection>
 
@@ -45,8 +42,8 @@ export default function TermsPage() {
         <ul>
           <li>use the Service to break the law or the terms of the platforms you connect;</li>
           <li>connect log sources you do not own or are not permitted to read;</li>
-          <li>attempt to access other workspaces&apos; data, probe or overload our servers, or reverse engineer protections on credential storage beyond what the license allows;</li>
-          <li>resell or provide the Service as a competing hosted product without written permission.</li>
+          <li>attempt to access other workspaces&apos; data, or probe or overload the servers that run the Service;</li>
+          <li>resell access to this Service. Running your own Signalcase server is always allowed under the AGPL-3.0.</li>
         </ul>
       </LegalSection>
 

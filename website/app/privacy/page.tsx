@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <LegalShell eyebrow="LEGAL" title="Privacy Policy" updated="August 22, 2026">
+    <LegalShell eyebrow="LEGAL" title="Privacy Policy" updated="August 22, 2026" template>
       <p>
         This policy explains what {site.legalEntity} collects when you use the Signalcase macOS app and
         website, why we collect it, and how long we keep it. The short version: Signalcase reads only the
@@ -60,7 +60,7 @@ export default function PrivacyPage() {
         <p>
           Where GDPR, UK GDPR, or similar laws apply, you can request access, correction, export, or
           erasure of your personal data, and object to or restrict certain processing. Workspace owners can
-          delete projects and members directly in the app; for anything else, email{" "}
+          delete projects and members directly in the app; for anything else,{" "}
           <a href={site.issuesURL} target="_blank" rel="noreferrer">open an issue on GitHub</a>. California residents have
           equivalent rights to know, delete, and opt out of any &quot;sale&quot; (we do not sell data).
         </p>

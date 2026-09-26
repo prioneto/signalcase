@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { BrandMark } from "@/components/brand-mark";
+import { site } from "@/lib/site";
 
-type Source = "SB" | "RD" | "APP";
+type Source = "SB" | "RD" | "APP" | "GH";
 type AppWindow = "signalcase" | "workflow" | "sources" | "about";
 type AppIconName = "signalcase" | "workflow" | "sources" | "about" | "source";
 type CaseFilter = "ALL" | "NEW" | "ACTIVE";
@@ -87,15 +89,16 @@ const cases: ProductCase[] = [
   },
 ];
 
-const sourceName: Record<Source, string> = { SB: "Supabase", RD: "Render", APP: "Application" };
-const githubRepoURL = "https://github.com/prioneto/signalcase";
-const downloadHref = process.env.NEXT_PUBLIC_MAC_DOWNLOAD_URL || githubRepoURL;
+const sourceName: Record<Source, string> = { SB: "Supabase", RD: "Render", APP: "Application", GH: "GitHub" };
+const downloadHref = process.env.NEXT_PUBLIC_MAC_DOWNLOAD_URL || site.repoURL;
+const downloadLabel = process.env.NEXT_PUBLIC_MAC_DOWNLOAD_URL ? "Download" : "GitHub";
 
 export default function Home() {
   const [activeWindow, setActiveWindow] = useState<AppWindow | null>("signalcase");
   const [selectedID, setSelectedID] = useState(cases[0].id);
   const [maximized, setMaximized] = useState(false);
   const [minimized, setMinimized] = useState(false);
+  const [noticeOpen, setNoticeOpen] = useState(true);
   const [clock, setClock] = useState("MON · 12:05");
   const selected = cases.find((item) => item.id === selectedID) ?? cases[0];
 
@@ -125,11 +128,11 @@ export default function Home() {
         event.currentTarget.style.setProperty("--pointer-y", `${event.clientY}px`);
       }}
     >
-      <h1 className="sr-only">Signalcase — Native bug evidence for small teams</h1>
+      <h1 className="sr-only">Signalcase — free, open-source bug evidence for macOS</h1>
 
       <header className="os-menu-bar">
         <button className="os-menu-brand" onClick={() => openWindow("signalcase")} aria-label="Open Signalcase">
-          <span className="os-menu-mark">⌁</span>
+          <span className="os-menu-mark"><BrandMark /></span>
           <strong>Signalcase</strong>
         </button>
         <nav className="os-menu-links" aria-label="Application menu">
@@ -139,15 +142,16 @@ export default function Home() {
         </nav>
         <div className="os-status">
           <span className="os-live"><i /> SYSTEMS ONLINE</span>
-          <span aria-hidden="true">◒</span>
-          <span>{clock}</span>
+          <span className="os-status-icon" aria-hidden="true">◒</span>
+          <span className="os-clock">{clock}</span>
+          <a className="os-menu-cta" href={site.repoURL} target="_blank" rel="noreferrer"><GitHubMark />GitHub</a>
         </div>
       </header>
 
       <div className="os-wallpaper" aria-hidden="true">
         <span className="wallpaper-ring ring-a" />
         <span className="wallpaper-ring ring-b" />
-        <span className="wallpaper-signal">⌁</span>
+        <BrandMark className="wallpaper-signal" />
         <p>EVERY TRACE<br />ONE CASE</p>
       </div>
 
@@ -157,9 +161,25 @@ export default function Home() {
         <DesktopShortcut label="Sources" icon="sources" tone="purple" onOpen={() => openWindow("sources")} />
         <a className="desktop-shortcut" href={downloadHref} target={downloadHref.startsWith("http") ? "_blank" : undefined} rel="noreferrer">
           <span className="desktop-icon icon-orange"><AppGlyph name="source" /></span>
-          <span>Source</span>
+          <span>{downloadLabel}</span>
         </a>
       </aside>
+
+      {noticeOpen && (
+        <aside className="os-notice" aria-label="Introduction">
+          <span className="os-notice-icon"><BrandMark /></span>
+          <div>
+            <div className="os-notice-meta"><b>SIGNALCASE</b><span>now</span></div>
+            <strong>Free and open source for macOS</strong>
+            <p>Turns logs from Supabase, Render, GitHub, and your app into evidence-backed bug cases. Self&#8209;hosted, no AI account needed.</p>
+            <div className="os-notice-actions">
+              <a href={site.repoURL} target="_blank" rel="noreferrer">View on GitHub</a>
+              <button onClick={() => { setNoticeOpen(false); openWindow("workflow"); }}>How it works</button>
+            </div>
+          </div>
+          <button className="os-notice-close" onClick={() => setNoticeOpen(false)} aria-label="Dismiss notification">×</button>
+        </aside>
+      )}
 
       <section className={`os-stage ${maximized ? "is-maximized" : ""} ${minimized ? "is-minimized" : ""}`} aria-live="polite">
         {activeWindow === "signalcase" && (
@@ -171,7 +191,7 @@ export default function Home() {
           <WindowFrame title="Workflow" onClose={() => setActiveWindow(null)} onMinimize={() => setMinimized(true)} onZoom={() => setMaximized((value) => !value)} compact>
             <InfoWindow eyebrow="01 / WORKFLOW" title="From noisy services to one usable case." intro="Signalcase keeps the few events that prove what happened and turns them into a handoff your developer can use.">
               <div className="os-step-grid">
-                <InfoCard number="01" icon="⌁" title="Collect" text="Read recent deploys, errors, database events, and webhook deliveries from your stack." />
+                <InfoCard number="01" icon="⌁" title="Collect" text="Read recent deploys, errors, database events, and failed CI runs from your stack." />
                 <InfoCard number="02" icon="⌘" title="Connect" text="Match request IDs, releases, users, fingerprints, and timestamps across services." />
                 <InfoCard number="03" icon="↗" title="Hand off" text="Give the developer a compact timeline, relevant code, impact, and a repeatable test." />
               </div>
@@ -185,6 +205,7 @@ export default function Home() {
                 <SourceCard source="SB" title="Supabase" text="Auth, Postgres, RLS, Storage and Edge Functions." />
                 <SourceCard source="RD" title="Render" text="Deploys, restarts, workers and service logs." />
                 <SourceCard source="APP" title="Application" text="Errors, routes, releases, users and request IDs." />
+                <SourceCard source="GH" title="GitHub" text="Failed Actions runs with branch, commit and actor." />
               </div>
             </InfoWindow>
           </WindowFrame>
@@ -192,15 +213,15 @@ export default function Home() {
         {activeWindow === "about" && (
           <WindowFrame title="About Signalcase" onClose={() => setActiveWindow(null)} onMinimize={() => setMinimized(true)} onZoom={() => setMaximized((value) => !value)} compact>
             <div className="about-window">
-              <div className="about-mark">⌁</div>
-              <span className="about-version">SIGNALCASE · MACOS</span>
+              <div className="about-mark"><BrandMark /></div>
+              <span className="about-version">SIGNALCASE · MACOS 14+</span>
               <h2>Your logs already know <em>what broke.</em></h2>
               <p>Signalcase connects the events around a failure and hands developers one compact, reproducible case—without searching separate dashboards.</p>
               <div className="about-actions">
                 <button className="os-primary" onClick={() => openWindow("signalcase")}>Launch the demo <span>→</span></button>
-                <a className="os-secondary" href={downloadHref} target={downloadHref.startsWith("http") ? "_blank" : undefined} rel="noreferrer">Build from source</a>
+                <a className="os-secondary" href={downloadHref} target={downloadHref.startsWith("http") ? "_blank" : undefined} rel="noreferrer">{downloadLabel === "Download" ? "Download for Mac" : "Build from source"}</a>
               </div>
-              <div className="about-proof"><span>NO REQUIRED AI</span><i /><span>READ-ONLY CONNECTIONS</span><i /><span>FREE FOR SMALL TEAMS</span></div>
+              <div className="about-proof"><span>NO AI ACCOUNT</span><i /><span>READ-ONLY CONNECTIONS</span><i /><span>FREE &amp; OPEN SOURCE</span></div>
             </div>
           </WindowFrame>
         )}
@@ -212,7 +233,7 @@ export default function Home() {
         <DockButton label="Sources" icon="sources" tone="purple" active={activeWindow === "sources"} minimized={minimized && activeWindow === "sources"} onOpen={() => openWindow("sources")} />
         <span className="dock-divider" />
         <DockButton label="About" icon="about" tone="dark" active={activeWindow === "about"} minimized={minimized && activeWindow === "about"} onOpen={() => openWindow("about")} />
-        <a className="dock-button" data-label="Source" href={downloadHref} aria-label="Open Signalcase source" target={downloadHref.startsWith("http") ? "_blank" : undefined} rel="noreferrer">
+        <a className="dock-button" data-label={downloadLabel} href={downloadHref} aria-label={downloadLabel === "Download" ? "Download Signalcase" : "Open Signalcase on GitHub"} target={downloadHref.startsWith("http") ? "_blank" : undefined} rel="noreferrer">
           <span className="dock-icon icon-orange"><AppGlyph name="source" /></span>
         </a>
       </nav>
@@ -304,9 +325,9 @@ function ProductApp({ selected, selectedID, onSelect, onOpenAbout }: { selected:
   return (
     <div className="demo-app">
       <aside className="demo-sidebar">
-        <div className="demo-brand"><b>⌁</b><span>SIGNALCASE</span></div>
+        <div className="demo-brand"><b><BrandMark /></b><span>SIGNALCASE</span></div>
         <button className={`sync-button ${syncState}`} onClick={() => setSyncState("syncing")} disabled={syncState === "syncing"}>
-          <span>{syncState === "done" ? "✓" : "⌁"}</span>
+          <span>{syncState === "done" ? "✓" : "↻"}</span>
           {syncState === "syncing" ? "Syncing sources…" : syncState === "done" ? "Logs up to date" : "Sync recent logs"}
         </button>
         <small>INBOX</small>
@@ -399,7 +420,7 @@ function DockButton({ label, icon, tone, active, minimized, onOpen }: { label: s
 
 function AppGlyph({ name }: { name: AppIconName }) {
   if (name === "signalcase") {
-    return <svg className="app-glyph" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M5.5 10.5 13 14.7v-4.4L26.5 18 19 22.2v-4.4L5.5 10.5Z" fill="currentColor" stroke="currentColor" strokeLinejoin="round" /></svg>;
+    return <BrandMark className="app-glyph app-glyph-full" />;
   }
 
   if (name === "workflow") {
@@ -415,6 +436,10 @@ function AppGlyph({ name }: { name: AppIconName }) {
   }
 
   return <svg className="app-glyph" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="m11 9-6 7 6 7M21 9l6 7-6 7M18.5 6.5l-5 19" stroke="currentColor" strokeWidth="2.7" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
+function GitHubMark() {
+  return <svg className="github-glyph" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" /></svg>;
 }
 
 function SourceBadge({ source }: { source: Source }) {
